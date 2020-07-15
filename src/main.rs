@@ -1,3 +1,5 @@
+#![feature(iterator_fold_self)]
+
 use anyhow::{Context, Result};
 use reqwest::{Client, Method};
 use rustacles_brokers::amqp::{AmqpBroker, Delivery};
@@ -42,14 +44,20 @@ async fn handle_request(
 		.path(full_path.as_str().try_into()?);
 
 	if let Some(query) = data.query {
-		let qs = query
+		let maybe_qs = query
 			.iter()
 			.map(|(k, v)| format!("{}={}", k, v))
-			.fold("".to_string(), |acc, pair| format!("{}&{}", acc, pair));
+			.fold_first(|mut acc, pair| {
+				acc.push('&');
+				acc.push_str(&pair);
+				acc
+			});
 
-		let mut query: Query = qs.as_str().try_into()?;
-		query.normalize();
-		builder.query(Some(query.into_owned()));
+		if let Some(qs) = maybe_qs {
+			let mut query: Query = qs.as_str().try_into()?;
+			query.normalize();
+			builder.query(Some(query.into_owned()));
+		}
 	}
 
 	let url = builder.build()?;
