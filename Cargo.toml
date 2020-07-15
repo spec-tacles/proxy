@@ -1,0 +1,18 @@
+[package]
+name = "rest-proxy"
+version = "0.1.0"
+authors = ["Will Nelson <will@pleb.xyz>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0"
+r2d2 = "0.8"
+redis = { version = "0.16", features = ["r2d2"] }
+reqwest = { version = "0.10", features = ["json"] }
+rustacles-brokers = { git = "https://github.com/spec-tacles/rustacles", branch = "feat/rpc" }
+serde = "1.0"
+serde_json = "1.0"
+tokio = { version = "0.2", features = ["full"] }
+uriparse = "0.6"
