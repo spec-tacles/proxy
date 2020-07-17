@@ -57,14 +57,12 @@ impl RedisRatelimiter {
 		let min = Duration::from_millis(min_millis);
 		let max = Duration::from_millis(max_millis);
 		let start = SystemTime::now();
-		let result = tokio::select! {
+		let _ = tokio::select! {
 			result = self.claim(bucket) => Ok(result),
 			_ = tokio::time::delay_for(max) => {
 				Err(anyhow!("failed to claim \"{}\" in {}s", bucket, max.as_secs()))
 			}
-		};
-
-		let _ = result?;
+		}?;
 
 		let end = SystemTime::now();
 		if end < start + min {
