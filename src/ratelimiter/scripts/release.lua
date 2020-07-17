@@ -3,7 +3,7 @@ local bucket_size_key = KEYS[2]
 local notify_key = KEYS[3]
 
 local new_bucket_size = tonumber(ARGV[1])
-local expires_at = tonumber(ARGV[2])
+local expires_in = tonumber(ARGV[2])
 
 if new_bucket_size > 0 then
 	local original_bucket_size = tonumber(redis.call("GET", bucket_size_key))
@@ -22,8 +22,8 @@ end
 
 redis.call("INCR", bucket_key)
 
-if expires_at > 0 then
-	redis.call("PEXPIREAT", bucket_key, expires_at)
+if expires_in > 0 then
+	redis.call("PEXPIRE", bucket_key, expires_in)
 end
 
 local ttl = redis.call("TTL", bucket_key)

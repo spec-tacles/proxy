@@ -4,6 +4,8 @@ use anyhow::anyhow;
 use anyhow::{Context, Result};
 use redis::Script;
 use reqwest::{Client, Request, Response};
+#[cfg(test)]
+use std::time::SystemTime;
 use std::{convert::Into, future::Future, pin::Pin, sync::Arc, time::Duration};
 use tokio::{
 	stream::StreamExt,
@@ -51,13 +53,30 @@ impl RedisRatelimiter {
 	}
 
 	#[cfg(test)]
-	async fn claim_timeout(&self, bucket: &str, timeout: Duration) -> Result<()> {
-		tokio::select! {
-			result = self.claim(bucket) => result,
-			_ = tokio::time::delay_for(timeout) => {
-				Err(anyhow!("failed to claim \"{}\" in {}s", bucket, timeout.as_secs()))
+	async fn claim_timeout(&self, bucket: &str, min_millis: u64, max_millis: u64) -> Result<()> {
+		let min = Duration::from_millis(min_millis);
+		let max = Duration::from_millis(max_millis);
+		let start = SystemTime::now();
+		let result = tokio::select! {
+			result = self.claim(bucket) => Ok(result),
+			_ = tokio::time::delay_for(max) => {
+				Err(anyhow!("failed to claim \"{}\" in {}s", bucket, max.as_secs()))
 			}
+		};
+
+		let _ = result?;
+
+		let end = SystemTime::now();
+		if end < start + min {
+			return Err(anyhow!(
+				"failed to claim \"{}\" in more than {}s (claimed in {}ms)",
+				bucket,
+				min.as_secs(),
+				end.duration_since(start)?.as_millis(),
+			));
 		}
+
+		Ok(())
 	}
 
 	async fn claim(&self, bucket: &str) -> Result<()> {
@@ -102,7 +121,7 @@ impl RedisRatelimiter {
 			.key(bucket.to_string() + "_size")
 			.key(NOTIFY_KEY)
 			.arg(info.limit.unwrap_or(0))
-			.arg(info.resets_at.unwrap_or(0) as usize)
+			.arg(info.resets_in.unwrap_or(0) as usize)
 			.invoke_async(&mut *self.redis.lock().await)
 			.await?;
 
@@ -142,7 +161,7 @@ mod test {
 			atomic::{AtomicBool, AtomicUsize, Ordering},
 			Arc,
 		},
-		time::{Duration, SystemTime, UNIX_EPOCH},
+		time::Duration,
 	};
 
 	static NEXT_DB: AtomicUsize = AtomicUsize::new(0);
@@ -166,13 +185,13 @@ mod test {
 	#[tokio::test]
 	async fn claim_release() -> Result<()> {
 		let client = get_client().await?;
-		client.claim_timeout("foo", Duration::from_secs(5)).await?;
+		client.claim_timeout("foo", 0, 50).await?;
 
 		let client = Arc::new(client);
 		let released = Arc::new(AtomicBool::new(false));
 		tokio::try_join!(
 			async {
-				client.claim_timeout("foo", Duration::from_secs(5)).await?;
+				client.claim_timeout("foo", 0, 100).await?;
 				match released.load(Ordering::Relaxed) {
 					true => Ok(()),
 					false => Err(anyhow::anyhow!("claimed before lock was released")),
@@ -184,7 +203,7 @@ mod test {
 						"foo",
 						RatelimitInfo {
 							limit: None,
-							resets_at: None,
+							resets_in: None,
 						},
 					)
 					.await?;
@@ -200,31 +219,20 @@ mod test {
 	async fn claim_timeout_release() -> Result<()> {
 		let client = get_client().await?;
 
-		client.claim_timeout("foo", Duration::from_secs(5)).await?;
-
-		let start = SystemTime::now().duration_since(UNIX_EPOCH)?;
-		let target = start + Duration::from_secs(5);
+		client.claim_timeout("foo", 0, 50).await?;
 
 		client
 			.release(
 				"foo",
 				RatelimitInfo {
 					limit: None,
-					resets_at: Some(target.as_millis()),
+					resets_in: Some(5000),
 				},
 			)
 			.await?;
 
-		client.claim_timeout("foo", Duration::from_secs(1)).await?;
-		client.claim_timeout("foo", Duration::from_secs(6)).await?;
-
-		let now = SystemTime::now().duration_since(UNIX_EPOCH)?;
-		assert!(
-			now > target,
-			"claimed lock {}ms after start (expected at least 5s)",
-			(now - start).as_millis()
-		);
-
+		client.claim_timeout("foo", 0, 50).await?;
+		client.claim_timeout("foo", 5000, 5050).await?;
 		Ok(())
 	}
 
@@ -232,39 +240,22 @@ mod test {
 	async fn claim_3x() -> Result<()> {
 		let client = get_client().await?;
 		tokio::try_join!(
-			client.claim_timeout("foo", Duration::from_secs(1)),
-			client.claim_timeout("foo", Duration::from_secs(6)),
-			client.claim_timeout("foo", Duration::from_secs(11)),
+			client.claim_timeout("foo", 0, 50),
+			client.claim_timeout("foo", 5000, 5050),
+			client.claim_timeout("foo", 10000, 10050),
 			async {
-				client
-					.release(
-						"foo",
-						RatelimitInfo {
-							limit: None,
-							resets_at: None,
-						},
-					)
-					.await?;
-				tokio::time::delay_for(Duration::from_secs(5)).await;
-				client
-					.release(
-						"foo",
-						RatelimitInfo {
-							limit: None,
-							resets_at: None,
-						},
-					)
-					.await?;
-				tokio::time::delay_for(Duration::from_secs(5)).await;
-				client
-					.release(
-						"foo",
-						RatelimitInfo {
-							limit: None,
-							resets_at: None,
-						},
-					)
-					.await?;
+				for _ in 0..2 {
+					tokio::time::delay_for(Duration::from_secs(5)).await;
+					client
+						.release(
+							"foo",
+							RatelimitInfo {
+								limit: None,
+								resets_in: None,
+							},
+						)
+						.await?;
+				}
 
 				Ok(())
 			}
@@ -277,26 +268,26 @@ mod test {
 	async fn claim_limit_release() -> Result<()> {
 		let client = get_client().await?;
 
-		client.claim_timeout("foo", Duration::from_secs(1)).await?;
+		client.claim_timeout("foo", 0, 50).await?;
 
 		client
 			.release(
 				"foo",
 				RatelimitInfo {
 					limit: Some(2),
-					resets_at: None,
+					resets_in: None,
 				},
 			)
 			.await?;
 
 		for _ in 0..2 {
-			client.claim_timeout("foo", Duration::from_secs(1)).await?;
+			client.claim_timeout("foo", 0, 50).await?;
 		}
 
 		let released = AtomicBool::new(false);
 		tokio::try_join!(
 			async {
-				client.claim_timeout("foo", Duration::from_secs(6)).await?;
+				client.claim_timeout("foo", 5000, 5050).await?;
 				match released.load(Ordering::Relaxed) {
 					true => Ok(()),
 					false => Err(anyhow::anyhow!("claimed before release")),
@@ -309,7 +300,7 @@ mod test {
 						"foo",
 						RatelimitInfo {
 							limit: Some(2),
-							resets_at: None,
+							resets_in: None,
 						},
 					)
 					.await?;
