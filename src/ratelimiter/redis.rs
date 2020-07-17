@@ -168,17 +168,22 @@ mod test {
 		let client = get_client().await?;
 		client.claim_timeout("foo", Duration::from_secs(5)).await?;
 
-		let released = AtomicBool::new(false);
-		tokio::select! {
-			claim = client.claim_timeout("foo", Duration::from_secs(5)) => {
-				let _ = claim?;
-				assert!(released.load(Ordering::Relaxed), "claimed before lock was released");
+		let client = Arc::new(client);
+		let released = Arc::new(AtomicBool::new(false));
+		tokio::try_join!(
+			async {
+				client.claim_timeout("foo", Duration::from_secs(5)).await?;
+				match released.load(Ordering::Relaxed) {
+					true => Ok(()),
+					false => Err(anyhow::anyhow!("claimed before lock was released")),
+				}
 			},
-			release = client.release("foo", RatelimitInfo { limit: None, resets_at: None }) => {
-				let _ = release?;
+			async {
+				client.release("foo", RatelimitInfo { limit: None, resets_at: None }).await?;
 				released.store(true, Ordering::Relaxed);
+				Ok(())
 			},
-		};
+		)?;
 
 		Ok(())
 	}
@@ -202,6 +207,7 @@ mod test {
 			)
 			.await?;
 
+		client.claim_timeout("foo", Duration::from_secs(1)).await?;
 		client.claim_timeout("foo", Duration::from_secs(6)).await?;
 
 		let now = SystemTime::now().duration_since(UNIX_EPOCH)?;
@@ -257,6 +263,49 @@ mod test {
 					Ok::<(), Error>(())
 				})
 				.await?
+			}
+		)?;
+
+		Ok(())
+	}
+
+	#[tokio::test]
+	async fn claim_limit_release() -> Result<()> {
+		let client = get_client().await?;
+
+		client.claim_timeout("foo", Duration::from_secs(1)).await?;
+
+		client
+			.release(
+				"foo",
+				RatelimitInfo {
+					limit: Some(2),
+					resets_at: None,
+				},
+			)
+			.await?;
+
+		for _ in 0..2 {
+			client.claim_timeout("foo", Duration::from_secs(1)).await?;
+		}
+
+		let released = AtomicBool::new(false);
+		tokio::try_join!(
+			async {
+				client.claim_timeout("foo", Duration::from_secs(6)).await?;
+				match released.load(Ordering::Relaxed) {
+					true => Ok(()),
+					false => Err(anyhow::anyhow!("claimed before release")),
+				}
+			},
+			async {
+				tokio::time::delay_for(Duration::from_secs(5)).await;
+				client.release("foo", RatelimitInfo {
+					limit: Some(2),
+					resets_at: None,
+				}).await?;
+				released.store(true, Ordering::Relaxed);
+				Ok(())
 			}
 		)?;
 
