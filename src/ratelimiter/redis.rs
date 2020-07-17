@@ -135,7 +135,7 @@ impl Ratelimiter for RedisRatelimiter {
 #[cfg(test)]
 mod test {
 	use super::{super::RatelimitInfo, RedisRatelimiter};
-	use anyhow::{Error, Result};
+	use anyhow::Result;
 	use redis::Client;
 	use std::{
 		sync::{
@@ -179,7 +179,15 @@ mod test {
 				}
 			},
 			async {
-				client.release("foo", RatelimitInfo { limit: None, resets_at: None }).await?;
+				client
+					.release(
+						"foo",
+						RatelimitInfo {
+							limit: None,
+							resets_at: None,
+						},
+					)
+					.await?;
 				released.store(true, Ordering::Relaxed);
 				Ok(())
 			},
@@ -223,46 +231,42 @@ mod test {
 	#[tokio::test]
 	async fn claim_3x() -> Result<()> {
 		let client = get_client().await?;
-		let client = Arc::new(client);
-		let release_client = Arc::clone(&client);
 		tokio::try_join!(
 			client.claim_timeout("foo", Duration::from_secs(1)),
 			client.claim_timeout("foo", Duration::from_secs(6)),
 			client.claim_timeout("foo", Duration::from_secs(11)),
 			async {
-				tokio::spawn(async move {
-					release_client
-						.release(
-							"foo",
-							RatelimitInfo {
-								limit: None,
-								resets_at: None,
-							},
-						)
-						.await?;
-					tokio::time::delay_for(Duration::from_secs(5)).await;
-					release_client
-						.release(
-							"foo",
-							RatelimitInfo {
-								limit: None,
-								resets_at: None,
-							},
-						)
-						.await?;
-					tokio::time::delay_for(Duration::from_secs(5)).await;
-					release_client
-						.release(
-							"foo",
-							RatelimitInfo {
-								limit: None,
-								resets_at: None,
-							},
-						)
-						.await?;
-					Ok::<(), Error>(())
-				})
-				.await?
+				client
+					.release(
+						"foo",
+						RatelimitInfo {
+							limit: None,
+							resets_at: None,
+						},
+					)
+					.await?;
+				tokio::time::delay_for(Duration::from_secs(5)).await;
+				client
+					.release(
+						"foo",
+						RatelimitInfo {
+							limit: None,
+							resets_at: None,
+						},
+					)
+					.await?;
+				tokio::time::delay_for(Duration::from_secs(5)).await;
+				client
+					.release(
+						"foo",
+						RatelimitInfo {
+							limit: None,
+							resets_at: None,
+						},
+					)
+					.await?;
+
+				Ok(())
 			}
 		)?;
 
@@ -300,10 +304,15 @@ mod test {
 			},
 			async {
 				tokio::time::delay_for(Duration::from_secs(5)).await;
-				client.release("foo", RatelimitInfo {
-					limit: Some(2),
-					resets_at: None,
-				}).await?;
+				client
+					.release(
+						"foo",
+						RatelimitInfo {
+							limit: Some(2),
+							resets_at: None,
+						},
+					)
+					.await?;
 				released.store(true, Ordering::Relaxed);
 				Ok(())
 			}
