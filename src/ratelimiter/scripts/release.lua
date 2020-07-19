@@ -20,10 +20,9 @@ if new_bucket_size > 0 then
 	redis.call("SET", bucket_size_key, new_bucket_size)
 end
 
-redis.call("INCR", bucket_key)
-
 local ttl = redis.call("TTL", bucket_key)
 if ttl < 0 then -- key has no expire or doesn't exist
+	redis.call("INCR", bucket_key)
 	redis.call("PUBLISH", notify_key, bucket_key)
 end
 

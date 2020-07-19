@@ -341,4 +341,40 @@ mod test {
 
 		Ok(())
 	}
+
+	#[tokio::test]
+	async fn claim_limit_release_timeout() -> Result<()> {
+		setup();
+
+		let client = get_client().await?;
+		client.claim_timeout("foo", 0, 50).await?;
+
+		let start = SystemTime::now();
+		client
+			.release(
+				"foo",
+				RatelimitInfo {
+					limit: Some(2),
+					resets_in: Some(5000),
+				},
+			)
+			.await?;
+
+		for _ in 0..2 {
+			client.claim_timeout("foo", 0, 50).await?;
+		}
+
+		tokio::time::delay_for(Duration::from_secs(1)).await;
+		client.release("foo", RatelimitInfo {
+			limit: Some(2),
+			resets_in: Some(4000),
+		}).await?;
+
+		let min = Duration::from_secs(5) - SystemTime::now().duration_since(start)?;
+		let min = min.as_millis() as u64;
+		client.claim_timeout("foo", min, min + 50).await?;
+		client.claim_timeout("foo", 0, 50).await?;
+
+		Ok(())
+	}
 }
