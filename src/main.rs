@@ -1,5 +1,8 @@
 #![feature(iterator_fold_self)]
 
+#[macro_use]
+extern crate log;
+
 use anyhow::{Context, Result};
 use reqwest::{Client, Method};
 use rustacles_brokers::amqp::{AmqpBroker, Delivery};
@@ -94,6 +97,8 @@ async fn handle_request(
 
 #[tokio::main]
 async fn main() {
+	env_logger::init();
+
 	let redis_client = redis::Client::open("redis://localhost:6379").unwrap();
 
 	let broker = AmqpBroker::new("amqp://localhost:5672/%2f", "rest".into(), None)

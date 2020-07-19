@@ -1286,6 +1286,8 @@ name = "rest-proxy"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "env_logger",
+ "log",
  "r2d2",
  "redis",
  "reqwest",

@@ -22,11 +22,11 @@ end
 
 redis.call("INCR", bucket_key)
 
-if expires_in > 0 then
-	redis.call("PEXPIRE", bucket_key, expires_in)
-end
-
 local ttl = redis.call("TTL", bucket_key)
 if ttl < 0 then -- key has no expire or doesn't exist
 	redis.call("PUBLISH", notify_key, bucket_key)
+end
+
+if expires_in > 0 then
+	redis.call("PEXPIRE", bucket_key, expires_in)
 end

@@ -57,20 +57,15 @@ impl RedisRatelimiter {
 		let min = Duration::from_millis(min_millis);
 		let max = Duration::from_millis(max_millis);
 		let start = SystemTime::now();
-		let _ = tokio::select! {
-			result = self.claim(bucket) => Ok(result),
-			_ = tokio::time::delay_for(max) => {
-				Err(anyhow!("failed to claim \"{}\" in {}s", bucket, max.as_secs()))
-			}
-		}?;
+		tokio::time::timeout(max, self.claim(bucket)).await??;
 
 		let end = SystemTime::now();
 		if end < start + min {
 			return Err(anyhow!(
-				"failed to claim \"{}\" in more than {}s (claimed in {}ms)",
+				"failed to claim \"{}\" in more than {:?} (claimed in {:?})",
 				bucket,
-				min.as_secs(),
-				end.duration_since(start)?.as_millis(),
+				min,
+				end.duration_since(start)?,
 			));
 		}
 
@@ -86,23 +81,21 @@ impl RedisRatelimiter {
 				.invoke_async(&mut *self.redis.lock().await)
 				.await?;
 
-			if expiration > 0 {
-				println!("known expiration: {}", expiration);
+			debug!("Received expiration of {}ms for \"{}\"", expiration, bucket);
+
+			if expiration.is_positive() {
 				tokio::time::delay_for(Duration::from_millis(expiration as u64)).await;
 				continue;
 			}
 
 			if expiration == 0 {
-				println!("ready!");
 				break;
 			}
 
-			println!("waiting for pubsub notification");
 			let mut rcv = self.ready_publisher.subscribe();
 			loop {
 				let opened_bucket = rcv.recv().await?;
 				if opened_bucket == bucket {
-					println!("bucket open!");
 					continue 'outer;
 				}
 			}
@@ -159,10 +152,18 @@ mod test {
 			atomic::{AtomicBool, AtomicUsize, Ordering},
 			Arc,
 		},
-		time::Duration,
+		time::{Duration, SystemTime},
 	};
 
 	static NEXT_DB: AtomicUsize = AtomicUsize::new(0);
+
+	fn setup() {
+		let _ = env_logger::builder()
+			.is_test(true)
+			.format_timestamp_nanos()
+			.filter_level(log::LevelFilter::Debug)
+			.try_init();
+	}
 
 	async fn get_client() -> Result<RedisRatelimiter> {
 		let db = NEXT_DB.fetch_add(1, Ordering::Relaxed);
@@ -182,6 +183,8 @@ mod test {
 
 	#[tokio::test]
 	async fn claim_release() -> Result<()> {
+		setup();
+
 		let client = get_client().await?;
 		client.claim_timeout("foo", 0, 50).await?;
 
@@ -196,15 +199,7 @@ mod test {
 				}
 			},
 			async {
-				client
-					.release(
-						"foo",
-						RatelimitInfo {
-							limit: None,
-							resets_in: None,
-						},
-					)
-					.await?;
+				client.release("foo", RatelimitInfo::default()).await?;
 				released.store(true, Ordering::Relaxed);
 				Ok(())
 			},
@@ -215,10 +210,12 @@ mod test {
 
 	#[tokio::test]
 	async fn claim_timeout_release() -> Result<()> {
-		let client = get_client().await?;
+		setup();
 
+		let client = get_client().await?;
 		client.claim_timeout("foo", 0, 50).await?;
 
+		let start = SystemTime::now();
 		client
 			.release(
 				"foo",
@@ -230,12 +227,17 @@ mod test {
 			.await?;
 
 		client.claim_timeout("foo", 0, 50).await?;
-		client.claim_timeout("foo", 5000, 5050).await?;
+
+		let min = Duration::from_secs(5) - SystemTime::now().duration_since(start)?;
+		let min = min.as_millis() as u64;
+		client.claim_timeout("foo", min, min + 50).await?;
 		Ok(())
 	}
 
 	#[tokio::test]
 	async fn claim_3x() -> Result<()> {
+		setup();
+
 		let client = get_client().await?;
 		tokio::try_join!(
 			client.claim_timeout("foo", 0, 50),
@@ -264,10 +266,10 @@ mod test {
 
 	#[tokio::test]
 	async fn claim_limit_release() -> Result<()> {
+		setup();
+
 		let client = get_client().await?;
-
 		client.claim_timeout("foo", 0, 50).await?;
-
 		client
 			.release(
 				"foo",
@@ -306,6 +308,36 @@ mod test {
 				Ok(())
 			}
 		)?;
+
+		Ok(())
+	}
+
+	#[tokio::test]
+	async fn claim_limit_timeout() -> Result<()> {
+		setup();
+
+		let client = get_client().await?;
+		client.claim_timeout("foo", 0, 50).await?;
+
+		let start = SystemTime::now();
+		client
+			.release(
+				"foo",
+				RatelimitInfo {
+					limit: Some(2),
+					resets_in: Some(5000),
+				},
+			)
+			.await?;
+
+		for _ in 0..2 {
+			client.claim_timeout("foo", 0, 50).await?;
+		}
+
+		let min = Duration::from_secs(5) - SystemTime::now().duration_since(start)?;
+		let min = min.as_millis() as u64;
+		client.claim_timeout("foo", min, min + 50).await?;
+		client.claim_timeout("foo", 0, 50).await?;
 
 		Ok(())
 	}
