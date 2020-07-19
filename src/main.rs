@@ -19,7 +19,8 @@ struct SerializableHttpRequest {
 	method: String,
 	path: String,
 	query: Option<HashMap<String, String>>,
-	body: Value,
+	body: Option<Value>,
+	#[serde(default)]
 	headers: HashMap<String, String>,
 }
 
