@@ -1,3 +1,4 @@
+#[cfg(feature = "redis-ratelimiter")]
 #[macro_use]
 extern crate log;
 

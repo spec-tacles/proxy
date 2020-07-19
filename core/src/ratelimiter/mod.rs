@@ -1,8 +1,10 @@
 use anyhow::Result;
+pub use reqwest;
 use reqwest::{header::HeaderMap, Request, Response};
 use std::{convert::TryFrom, future::Future, pin::Pin, str::FromStr, sync::Arc};
 use uriparse::path::{Path, Segment};
 
+#[cfg(feature = "redis-ratelimiter")]
 pub mod redis;
 
 pub trait Ratelimiter {

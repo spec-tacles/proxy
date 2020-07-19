@@ -1,0 +1,19 @@
+[package]
+name = "spectacles-proxy-bin"
+version = "0.1.0"
+authors = ["Will Nelson <will@pleb.xyz>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0"
+env_logger = "0.7.1"
+log = "0.4.0"
+rustacles-brokers = { git = "https://github.com/spec-tacles/rustacles", branch = "feat/rpc" }
+serde = "1.0"
+serde_json = "1.0"
+spectacles-proxy = { path = "../core", features = ["redis-ratelimiter"] }
+tokio = { version = "0.2", features = ["rt-core", "rt-threaded", "macros"] }
+toml = "0.5"
+uriparse = "0.6"

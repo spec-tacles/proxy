@@ -1,3 +1,4 @@
+use anyhow::Result;
 use serde::Deserialize;
 use std::env;
 
@@ -10,6 +11,10 @@ pub struct Config {
 }
 
 impl Config {
+	pub fn from_toml_file(file: &str) -> Result<Self> {
+		Ok(toml::from_slice(&std::fs::read(file)?)?)
+	}
+
 	pub fn with_env(mut self) -> Self {
 		for (k, v) in env::vars() {
 			match k.as_str() {

@@ -1,18 +1,18 @@
 #![feature(iterator_fold_self)]
 
-#[macro_use]
-extern crate log;
-
 use anyhow::{Context, Result};
-use reqwest::{Client, Method};
 use rustacles_brokers::amqp::{AmqpBroker, Delivery};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use spectacles_proxy::ratelimiter::{
+	self,
+	redis::redis,
+	reqwest::{Client, Method},
+};
 use std::{collections::HashMap, convert::TryInto, ops::Deref, str::FromStr, sync::Arc};
 use uriparse::{Query, Scheme, URIBuilder};
 
 mod config;
-mod ratelimiter;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct SerializableHttpRequest {
@@ -101,11 +101,9 @@ async fn handle_request(
 async fn main() {
 	env_logger::init();
 
-	let config = toml::from_slice::<config::Config>(
-		&std::fs::read("proxy.toml").expect("Unable to read config file"),
-	)
-	.expect("Invalid config file")
-	.with_env();
+	let config = config::Config::from_toml_file("proxy.toml")
+		.unwrap_or_default()
+		.with_env();
 
 	let redis_client = redis::Client::open(config.redis.url).unwrap();
 	let broker = AmqpBroker::new(&config.amqp.url, config.amqp.group, config.amqp.subgroup)

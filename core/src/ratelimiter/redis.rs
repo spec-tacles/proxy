@@ -1,5 +1,6 @@
 use super::{make_route, RatelimitInfo, Ratelimiter};
 use anyhow::{Context, Result};
+pub use redis;
 use redis::Script;
 use reqwest::{Client, Request, Response};
 use std::{convert::Into, future::Future, pin::Pin, sync::Arc, time::Duration};
