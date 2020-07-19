@@ -11,6 +11,7 @@ use serde_json::Value;
 use std::{collections::HashMap, convert::TryInto, ops::Deref, str::FromStr, sync::Arc};
 use uriparse::{Query, Scheme, URIBuilder};
 
+mod config;
 mod ratelimiter;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -99,13 +100,18 @@ async fn handle_request(
 async fn main() {
 	env_logger::init();
 
-	let redis_client = redis::Client::open("redis://localhost:6379").unwrap();
+	let config = toml::from_slice::<config::Config>(
+		&std::fs::read("proxy.toml").expect("Unable to read config file"),
+	)
+	.expect("Invalid config file")
+	.with_env();
 
-	let broker = AmqpBroker::new("amqp://localhost:5672/%2f", "rest".into(), None)
+	let redis_client = redis::Client::open(config.redis.url).unwrap();
+	let broker = AmqpBroker::new(&config.amqp.url, config.amqp.group, config.amqp.subgroup)
 		.await
 		.expect("Unable to start AMQP broker");
 	let mut consumer = broker
-		.consume("REQUEST")
+		.consume(&config.amqp.event)
 		.await
 		.expect("Unable to begin message consumption");
 
