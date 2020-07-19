@@ -1282,24 +1282,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rest-proxy"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "env_logger",
- "log",
- "r2d2",
- "redis",
- "reqwest",
- "rustacles-brokers",
- "serde",
- "serde_json",
- "tokio",
- "toml",
- "uriparse",
-]
-
-[[package]]
 name = "rustacles-brokers"
 version = "0.1.0"
 source = "git+https://github.com/spec-tacles/rustacles?branch=feat/rpc#ad822a42d6da44f3fd3438709956f757c8699070"
@@ -1503,6 +1485,24 @@ dependencies = [
  "libc",
  "redox_syscall",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "spectacles-proxy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "log",
+ "r2d2",
+ "redis",
+ "reqwest",
+ "rustacles-brokers",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+ "uriparse",
 ]
 
 [[package]]
