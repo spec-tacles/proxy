@@ -34,7 +34,7 @@ struct SerializableHttpResponse {
 
 async fn handle_request(
 	http: Arc<Client>,
-	ratelimiter: Arc<impl ratelimiter::Ratelimiter>,
+	ratelimiter: Arc<impl ratelimiter::Ratelimiter + Send + Sync + 'static>,
 	broker: impl Deref<Target = AmqpBroker>,
 	message: Delivery,
 ) -> Result<()> {
@@ -73,7 +73,7 @@ async fn handle_request(
 		.body(serde_json::to_vec(&data.body)?)
 		.build()?;
 
-	let res = ratelimiter.make_request(req).await?;
+	let res = ratelimiter.make_request(Arc::clone(&http), req).await??;
 
 	let res_data = SerializableHttpResponse {
 		status: res.status().as_u16(),
