@@ -1,30 +1,29 @@
 use super::{FutureResult, RatelimitInfo, Ratelimiter};
 use anyhow::anyhow;
-use std::{
-	collections::HashMap,
+use std::{collections::HashMap, sync::Arc};
+use tokio::{
 	sync::{
-		atomic::{AtomicUsize, Ordering},
-		Arc,
+		mpsc::{self, Sender},
+		Mutex, OwnedSemaphorePermit, RwLock, Semaphore,
 	},
-	time::SystemTime,
+	time::{delay_for, delay_until, Duration, Instant},
 };
-use tokio::sync::{Notify, RwLock};
 
 #[derive(Debug)]
 struct Bucket {
-	size: Option<usize>,
-	remaining: AtomicUsize,
-	expires_at: Option<SystemTime>,
-	ready_notifier: Option<Notify>,
+	ready: Arc<Semaphore>,
+	permits: Mutex<Vec<OwnedSemaphorePermit>>,
+	new_timeout: Mutex<Option<Sender<Instant>>>,
+	size: usize,
 }
 
 impl Default for Bucket {
 	fn default() -> Self {
 		Self {
-			size: None,
-			remaining: AtomicUsize::new(1),
-			expires_at: None,
-			ready_notifier: None,
+			ready: Arc::new(Semaphore::new(1)),
+			permits: Default::default(),
+			new_timeout: Default::default(),
+			size: 1,
 		}
 	}
 }
@@ -38,37 +37,19 @@ impl Ratelimiter for LocalRatelimiter {
 	fn claim(self: Arc<Self>, bucket: String) -> FutureResult<()> {
 		let this = Arc::clone(&self);
 		Box::pin(async move {
-			loop {
-				let bucket = Arc::clone(
-					this.buckets
-						.write()
-						.await
-						.entry(bucket.clone())
-						.or_default(),
-				);
+			let bucket = Arc::clone(
+				this.buckets
+					.write()
+					.await
+					.entry(bucket.clone())
+					.or_default(),
+			);
 
-				let updated =
-					bucket
-						.remaining
-						.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| x.checked_sub(1));
-
-				if updated.is_ok() {
-					break;
-				}
-
-				if let Some(expiration) = bucket.expires_at {
-					if let Err(until) = expiration.elapsed() {
-						tokio::time::delay_for(until.duration()).await;
-					}
-
-					continue;
-				} else if let Some(ready_notifier) = bucket.ready_notifier.as_ref() {
-					ready_notifier.notified().await;
-					continue;
-				} else {
-					return Err(anyhow!("Unable to get waiting duration"));
-				}
-			}
+			bucket
+				.permits
+				.lock()
+				.await
+				.push(Arc::clone(&bucket.ready).acquire_owned().await);
 
 			Ok(())
 		})
@@ -76,15 +57,52 @@ impl Ratelimiter for LocalRatelimiter {
 
 	fn release(self: Arc<Self>, bucket: String, info: RatelimitInfo) -> FutureResult<()> {
 		let this = Arc::clone(&self);
+		let now = Instant::now();
 
 		Box::pin(async move {
-			let bucket = this.buckets
-				.read()
-				.await
-				.get(&bucket)
-				.ok_or(anyhow!("Attempted to release before claim"))?;
+			let bucket = Arc::clone(
+				this.buckets
+					.read()
+					.await
+					.get(&bucket)
+					.ok_or(anyhow!("Attempted to release before claim"))?,
+			);
+
+			if let Some(resets_in) = info.resets_in {
+				let duration = Duration::from_millis(resets_in);
+				let mut maybe_sender = bucket.new_timeout.lock().await;
+				match &mut *maybe_sender {
+					Some(sender) => {
+						sender.send(now + duration).await?;
+					}
+					None => {
+						let mut delay = delay_for(duration);
+						let (sender, mut receiver) = mpsc::channel::<Instant>(1);
+						let timeout_bucket = Arc::clone(&bucket);
+						tokio::spawn(async move {
+							loop {
+								tokio::select! {
+									Some(new_instant) = receiver.recv() => {
+										delay = delay_until(new_instant);
+									},
+									_ = delay => {
+										timeout_bucket.permits.lock().await.clear();
+										break;
+									}
+								}
+							}
+						});
+						*maybe_sender = Some(sender);
+					}
+				}
+			}
 
 			Ok(())
 		})
 	}
+}
+
+#[cfg(test)]
+mod test {
+	//
 }

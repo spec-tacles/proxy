@@ -89,7 +89,7 @@ impl Ratelimiter for RedisRatelimiter {
 				.key(bucket.to_string() + "_size")
 				.key(NOTIFY_KEY)
 				.arg(info.limit.unwrap_or(0))
-				.arg(info.resets_in.unwrap_or(0) as usize)
+				.arg(info.resets_in.unwrap_or(0))
 				.invoke_async(&mut *self.redis.lock().await)
 				.await?;
 

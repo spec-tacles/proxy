@@ -37,7 +37,7 @@ pub trait Ratelimiter {
 #[derive(Debug, Default)]
 pub struct RatelimitInfo {
 	pub limit: Option<usize>,
-	pub resets_in: Option<u128>,
+	pub resets_in: Option<u64>,
 }
 
 fn get_header<T: FromStr>(headers: &HeaderMap, key: &str) -> Option<T> {
@@ -54,7 +54,7 @@ impl<'a, E> From<std::result::Result<&'a Response, E>> for RatelimitInfo {
 				Self {
 					limit: get_header(headers, "x-ratelimit-limit"),
 					resets_in: get_header(headers, "x-ratelimit-reset-after")
-						.map(|r: f64| (r * 1000.) as u128),
+						.map(|r: f64| (r * 1000.) as u64),
 				}
 			}
 			Err(_) => Self::default(),
