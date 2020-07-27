@@ -100,29 +100,15 @@ impl Ratelimiter for RedisRatelimiter {
 
 #[cfg(test)]
 mod test {
-	use super::{
-		super::{RatelimitInfo, Ratelimiter},
-		RedisRatelimiter,
-	};
-	use anyhow::{anyhow, Result};
+	use super::{super::test, RedisRatelimiter};
+	use anyhow::Result;
 	use redis::Client;
-	use std::{
-		sync::{
-			atomic::{AtomicBool, AtomicUsize, Ordering},
-			Arc,
-		},
-		time::{Duration, SystemTime},
+	use std::sync::{
+		atomic::{AtomicUsize, Ordering},
+		Arc,
 	};
 
 	static NEXT_DB: AtomicUsize = AtomicUsize::new(0);
-
-	fn setup() {
-		let _ = env_logger::builder()
-			.is_test(true)
-			.format_timestamp_nanos()
-			.filter_level(log::LevelFilter::Debug)
-			.try_init();
-	}
 
 	async fn get_client() -> Result<Arc<RedisRatelimiter>> {
 		let db = NEXT_DB.fetch_add(1, Ordering::Relaxed);
@@ -142,238 +128,45 @@ mod test {
 		))
 	}
 
-	async fn claim_timeout(
-		client: Arc<RedisRatelimiter>,
-		bucket: &str,
-		min_millis: u64,
-		max_millis: u64,
-	) -> Result<()> {
-		let min = Duration::from_millis(min_millis);
-		let max = Duration::from_millis(max_millis);
-		let start = SystemTime::now();
-		tokio::time::timeout(max, client.claim(bucket.to_string())).await??;
-
-		let end = SystemTime::now();
-		if end < start + min {
-			return Err(anyhow!(
-				"failed to claim \"{}\" in more than {:?} (claimed in {:?})",
-				bucket,
-				min,
-				end.duration_since(start)?,
-			));
-		}
-
-		Ok(())
-	}
-
 	#[tokio::test]
 	async fn claim_release() -> Result<()> {
-		setup();
-
+		test::setup();
 		let client = get_client().await?;
-		claim_timeout(client.clone(), "foo", 0, 50).await?;
-
-		let released = Arc::new(AtomicBool::new(false));
-		tokio::try_join!(
-			async {
-				claim_timeout(client.clone(), "foo", 0, 100).await?;
-				match released.load(Ordering::Relaxed) {
-					true => Ok(()),
-					false => Err(anyhow::anyhow!("claimed before lock was released")),
-				}
-			},
-			async {
-				client
-					.clone()
-					.release("foo".into(), RatelimitInfo::default())
-					.await?;
-				released.store(true, Ordering::Relaxed);
-				Ok(())
-			},
-		)?;
-
-		Ok(())
+		test::claim_release(client).await
 	}
 
 	#[tokio::test]
 	async fn claim_timeout_release() -> Result<()> {
-		setup();
-
+		test::setup();
 		let client = get_client().await?;
-		claim_timeout(client.clone(), "foo", 0, 50).await?;
-
-		let start = SystemTime::now();
-		client
-			.clone()
-			.release(
-				"foo".into(),
-				RatelimitInfo {
-					limit: None,
-					resets_in: Some(5000),
-				},
-			)
-			.await?;
-
-		claim_timeout(client.clone(), "foo", 0, 50).await?;
-
-		let min = Duration::from_secs(5) - SystemTime::now().duration_since(start)?;
-		let min = min.as_millis() as u64;
-		claim_timeout(client, "foo", min, min + 50).await?;
-		Ok(())
+		test::claim_timeout_release(client).await
 	}
 
 	#[tokio::test]
 	async fn claim_3x() -> Result<()> {
-		setup();
-
+		test::setup();
 		let client = get_client().await?;
-		tokio::try_join!(
-			claim_timeout(client.clone(), "foo", 0, 50),
-			claim_timeout(client.clone(), "foo", 5000, 5050),
-			claim_timeout(client.clone(), "foo", 10000, 10050),
-			async {
-				for _ in 0..2 {
-					tokio::time::delay_for(Duration::from_secs(5)).await;
-					client
-						.clone()
-						.release(
-							"foo".into(),
-							RatelimitInfo {
-								limit: None,
-								resets_in: None,
-							},
-						)
-						.await?;
-				}
-
-				Ok(())
-			}
-		)?;
-
-		Ok(())
+		test::claim_3x(client).await
 	}
 
 	#[tokio::test]
 	async fn claim_limit_release() -> Result<()> {
-		setup();
-
+		test::setup();
 		let client = get_client().await?;
-		claim_timeout(client.clone(), "foo", 0, 50).await?;
-		client
-			.clone()
-			.release(
-				"foo".into(),
-				RatelimitInfo {
-					limit: Some(2),
-					resets_in: None,
-				},
-			)
-			.await?;
-
-		for _ in 0..2 {
-			claim_timeout(client.clone(), "foo", 0, 50).await?;
-		}
-
-		let released = AtomicBool::new(false);
-		tokio::try_join!(
-			async {
-				claim_timeout(client.clone(), "foo", 5000, 5050).await?;
-				match released.load(Ordering::Relaxed) {
-					true => Ok(()),
-					false => Err(anyhow::anyhow!("claimed before release")),
-				}
-			},
-			async {
-				tokio::time::delay_for(Duration::from_secs(5)).await;
-				client
-					.clone()
-					.release(
-						"foo".into(),
-						RatelimitInfo {
-							limit: Some(2),
-							resets_in: None,
-						},
-					)
-					.await?;
-				released.store(true, Ordering::Relaxed);
-				Ok(())
-			}
-		)?;
-
-		Ok(())
+		test::claim_limit_release(client).await
 	}
 
 	#[tokio::test]
 	async fn claim_limit_timeout() -> Result<()> {
-		setup();
-
+		test::setup();
 		let client = get_client().await?;
-		claim_timeout(client.clone(), "foo", 0, 50).await?;
-
-		let start = SystemTime::now();
-		client
-			.clone()
-			.release(
-				"foo".into(),
-				RatelimitInfo {
-					limit: Some(2),
-					resets_in: Some(5000),
-				},
-			)
-			.await?;
-
-		for _ in 0..2 {
-			claim_timeout(client.clone(), "foo", 0, 50).await?;
-		}
-
-		let min = Duration::from_secs(5) - SystemTime::now().duration_since(start)?;
-		let min = min.as_millis() as u64;
-		claim_timeout(client.clone(), "foo", min, min + 50).await?;
-		claim_timeout(client, "foo", 0, 50).await?;
-
-		Ok(())
+		test::claim_limit_timeout(client).await
 	}
 
 	#[tokio::test]
 	async fn claim_limit_release_timeout() -> Result<()> {
-		setup();
-
+		test::setup();
 		let client = get_client().await?;
-		claim_timeout(client.clone(), "foo", 0, 50).await?;
-
-		let start = SystemTime::now();
-		client
-			.clone()
-			.release(
-				"foo".into(),
-				RatelimitInfo {
-					limit: Some(2),
-					resets_in: Some(5000),
-				},
-			)
-			.await?;
-
-		for _ in 0..2 {
-			claim_timeout(client.clone(), "foo", 0, 50).await?;
-		}
-
-		tokio::time::delay_for(Duration::from_secs(1)).await;
-		client
-			.clone()
-			.release(
-				"foo".into(),
-				RatelimitInfo {
-					limit: Some(2),
-					resets_in: Some(4000),
-				},
-			)
-			.await?;
-
-		let min = Duration::from_secs(5) - SystemTime::now().duration_since(start)?;
-		let min = min.as_millis() as u64;
-		claim_timeout(client.clone(), "foo", min, min + 50).await?;
-		claim_timeout(client.clone(), "foo", 0, 50).await?;
-
-		Ok(())
+		test::claim_limit_release_timeout(client).await
 	}
 }

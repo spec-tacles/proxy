@@ -8,11 +8,11 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0"
-log = "0.4.0"
+log = "0.4"
 reqwest = { version = "0.10", features = ["json"] }
 serde = "1.0"
 serde_json = "1.0"
-tokio = { version = "0.2", features = ["rt-core", "stream", "sync"]}
+tokio = { version = "0.2", features = ["blocking", "rt-core", "stream", "sync"] }
 uriparse = "0.6"
 
 redis = { version = "0.16", optional = true }
