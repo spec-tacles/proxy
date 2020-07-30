@@ -34,7 +34,7 @@ pub trait Ratelimiter {
 	}
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Eq, PartialEq)]
 pub struct RatelimitInfo {
 	pub limit: Option<usize>,
 	pub resets_in: Option<u64>,

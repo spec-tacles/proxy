@@ -17,3 +17,6 @@ spectacles-proxy = { path = "../core", features = ["redis-ratelimiter"] }
 tokio = { version = "0.2", features = ["rt-core", "rt-threaded", "macros"] }
 toml = "0.5"
 uriparse = "0.6"
+
+[dev-dependencies]
+mockito = "0.27"
