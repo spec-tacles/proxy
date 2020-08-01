@@ -202,28 +202,33 @@ async fn main() {
 
 	let redis_client = redis::Client::open(config.redis.url).expect("Unable to connect to Redis");
 	let broker: AmqpBroker = loop {
-		let broker_res = AmqpBroker::new(
+		match AmqpBroker::new(
 			&config.amqp.url,
 			config.amqp.group.clone(),
 			config.amqp.subgroup.clone(),
 		)
-		.await;
-
-		match broker_res {
+		.await
+		{
 			Ok(b) => break b,
 			Err(e) => eprintln!("Error connecting to AMQP; retrying in 5s: {}", e),
 		}
 
 		delay_for(Duration::from_secs(5)).await;
 	};
+
 	let mut consumer = broker
 		.consume(&config.amqp.event)
 		.await
-		.expect("Unable to begin message consumption");
+		.expect("Unable to setup message consumption");
 
-	let ratelimiter = RedisRatelimiter::new(&redis_client)
-		.await
-		.expect("Unable to create ratelimiter");
+	let ratelimiter = loop {
+		match RedisRatelimiter::new(&redis_client).await {
+			Ok(r) => break r,
+			Err(e) => eprintln!("Error setting up Redis ratelimiter; retrying in 5s: {}", e),
+		}
+
+		delay_for(Duration::from_secs(5)).await;
+	};
 
 	let client = Arc::new(Client {
 		http: Arc::new(reqwest::Client::new()),
@@ -234,6 +239,7 @@ async fn main() {
 		api_version: 6,
 	});
 
+	println!("Beginning normal message consumption");
 	while let Some(message) = consumer.recv().await {
 		let client = Arc::clone(&client);
 		tokio::spawn(async move {
