@@ -1,4 +1,7 @@
-use crate::{config::AmqpConfig, Client, SerializableHttpRequest, SerializableHttpResponse};
+use crate::{
+	config::AmqpConfig, Client, RequestResponse, ResponseStatus, SerializableHttpRequest,
+	SerializableHttpResponse,
+};
 use anyhow::Result;
 use mockito::mock;
 use rustacles_brokers::amqp::AmqpBroker;
@@ -45,10 +48,7 @@ async fn handles_request() -> Result<()> {
 
 	spawn(async move {
 		while let Some(message) = consumer.recv().await {
-			client
-				.handle_request(message)
-				.await
-				.expect("Unable to handle message");
+			client.handle_request(message).await;
 		}
 	});
 
@@ -71,10 +71,11 @@ async fn handles_request() -> Result<()> {
 	.await??;
 	mock.assert();
 
-	let body: SerializableHttpResponse = from_slice(&response.data)?;
+	let response: RequestResponse<SerializableHttpResponse> = from_slice(&response.data)?;
 
+	assert_eq!(response.status, ResponseStatus::Success);
 	assert_eq!(
-		body,
+		response.body,
 		SerializableHttpResponse {
 			status: 200,
 			headers: vec![
