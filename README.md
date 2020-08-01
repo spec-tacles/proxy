@@ -28,6 +28,8 @@ group = "rest" # AMQP_GROUP
 event = "REQUEST" # AMQP_EVENT
 ```
 
+### Request Format
+
 Requests can be made by publishing on the specified event to the specified group. The data must be serialized in JSON format.
 
 ```json
@@ -48,7 +50,33 @@ Requests can be made by publishing on the specified event to the specified group
 
 `query`, `body`, and `headers` are optional. Body must be any valid JSON value.
 
+### Response Format
+
 The response is returned on the callback queue in the following JSON format.
+
+```json
+{
+	"status": 0,
+	"body": ...
+}
+```
+
+#### Response Status
+
+**Status**|**Description**
+-----:|-----
+0|Success
+1|Unknown error
+2|Invalid request format (non-JSON)
+3|Invalid URL path
+4|Invalid URL query
+5|Invalid HTTP method
+6|Invalid HTTP headers
+7|Request failure
+
+#### Response Body
+
+For a successful call (status 0), the body will be an object representing the HTTP response:
 
 ```json
 {
@@ -62,3 +90,5 @@ The response is returned on the callback queue in the following JSON format.
 ```
 
 `url` represents the full, final URL of the request. `body` is any valid JSON as returned from the server.
+
+For an unsuccessful status code (non-zero status), the body will be a string describing the error.
