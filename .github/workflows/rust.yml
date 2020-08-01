@@ -18,3 +18,10 @@ jobs:
     - run: rustup default nightly
     - name: Build
       run: cargo build --verbose
+    - name: Publish to Docker
+      uses: jerray/publish-docker-action
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+        repository: spectacles/proxy
+        auto_tag: true
