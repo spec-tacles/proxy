@@ -10,18 +10,26 @@ use spectacles_proxy::ratelimiter::{local::LocalRatelimiter, reqwest};
 use std::sync::Arc;
 use tokio::{
 	spawn,
-	time::{timeout, Duration},
+	time::{delay_for, timeout, Duration},
 };
 
 #[tokio::test]
 async fn handles_request() -> Result<()> {
 	let amqp_config = AmqpConfig::default();
-	let broker = AmqpBroker::new(
-		&amqp_config.url,
-		amqp_config.group.clone(),
-		amqp_config.subgroup.clone(),
-	)
-	.await?;
+	let broker: AmqpBroker = loop {
+		let broker_res = AmqpBroker::new(
+			&amqp_config.url,
+			amqp_config.group.clone(),
+			amqp_config.subgroup.clone(),
+		)
+		.await;
+
+		if let Ok(b) = broker_res {
+			break b;
+		}
+
+		delay_for(Duration::from_secs(5)).await;
+	};
 
 	let rpc_broker = AmqpBroker::new(&amqp_config.url, amqp_config.group, amqp_config.subgroup)
 		.await?

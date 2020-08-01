@@ -11,6 +11,7 @@ use spectacles_proxy::ratelimiter::{
 	Ratelimiter,
 };
 use std::{collections::HashMap, convert::TryInto, str::FromStr, sync::Arc};
+use tokio::time::{delay_for, Duration};
 use uriparse::{Path, Query, Scheme, URIBuilder};
 
 mod config;
@@ -200,9 +201,21 @@ async fn main() {
 		.with_env();
 
 	let redis_client = redis::Client::open(config.redis.url).unwrap();
-	let broker = AmqpBroker::new(&config.amqp.url, config.amqp.group, config.amqp.subgroup)
-		.await
-		.expect("Unable to start AMQP broker");
+	let broker: AmqpBroker = loop {
+		let broker_res = AmqpBroker::new(
+			&config.amqp.url,
+			config.amqp.group.clone(),
+			config.amqp.subgroup.clone(),
+		)
+		.await;
+
+		match broker_res {
+			Ok(b) => break b,
+			Err(e) => eprintln!("Error connecting to AMQP; retrying in 5s: {}", e),
+		}
+
+		delay_for(Duration::from_secs(5)).await;
+	};
 	let mut consumer = broker
 		.consume(&config.amqp.event)
 		.await
