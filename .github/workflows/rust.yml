@@ -13,13 +13,36 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
     - uses: actions/checkout@v2
     - run: rustup default nightly
     - name: Build
-      run: cargo build --verbose
+      run: cargo build --release --verbose -Z unstable-options --out-dir ./out
+    - name: Compress output
+      run: tar -zcvf proxy.tar.gz ./out
+    - uses: actions/upload-artifact@v2
+      with:
+        name: proxy-${{ runner.OS }}.tar.gz
+        path: proxy.tar.gz
+    - name: Upload Release Asset
+      if: github.event == release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: proxy.tar.gz
+        asset_name: proxy-${{ runner.OS }}.tar.gz
+        asset_content_type: application/zip
+
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
     - name: Publish to Docker
       uses: jerray/publish-docker-action@master
       with:
