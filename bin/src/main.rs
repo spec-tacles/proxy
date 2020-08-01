@@ -200,7 +200,7 @@ async fn main() {
 		.unwrap_or_default()
 		.with_env();
 
-	let redis_client = redis::Client::open(config.redis.url).unwrap();
+	let redis_client = redis::Client::open(config.redis.url).expect("Unable to connect to Redis");
 	let broker: AmqpBroker = loop {
 		let broker_res = AmqpBroker::new(
 			&config.amqp.url,
