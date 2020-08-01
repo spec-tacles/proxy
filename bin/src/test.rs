@@ -1,5 +1,5 @@
 use crate::{
-	config::AmqpConfig, Client, RequestResponse, ResponseStatus, SerializableHttpRequest,
+	config::Config, Client, RequestResponse, ResponseStatus, SerializableHttpRequest,
 	SerializableHttpResponse,
 };
 use anyhow::Result;
@@ -15,12 +15,12 @@ use tokio::{
 
 #[tokio::test]
 async fn handles_request() -> Result<()> {
-	let amqp_config = AmqpConfig::default();
+	let config = Config::default().with_env();
 	let broker: AmqpBroker = loop {
 		let broker_res = AmqpBroker::new(
-			&amqp_config.url,
-			amqp_config.group.clone(),
-			amqp_config.subgroup.clone(),
+			&config.amqp.url,
+			config.amqp.group.clone(),
+			config.amqp.subgroup.clone(),
 		)
 		.await;
 
@@ -31,12 +31,12 @@ async fn handles_request() -> Result<()> {
 		delay_for(Duration::from_secs(5)).await;
 	};
 
-	let rpc_broker = AmqpBroker::new(&amqp_config.url, amqp_config.group, amqp_config.subgroup)
+	let rpc_broker = AmqpBroker::new(&config.amqp.url, config.amqp.group, config.amqp.subgroup)
 		.await?
 		.with_rpc()
 		.await?;
 
-	let mut consumer = broker.consume(&amqp_config.event).await?;
+	let mut consumer = broker.consume(&config.amqp.event).await?;
 
 	let ratelimiter = LocalRatelimiter::default();
 
@@ -71,7 +71,7 @@ async fn handles_request() -> Result<()> {
 	let response = timeout(
 		Duration::from_secs(5),
 		rpc_broker.call(
-			&amqp_config.event,
+			&config.amqp.event,
 			to_vec(&payload).unwrap(),
 			Default::default(),
 		),
