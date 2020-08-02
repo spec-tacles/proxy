@@ -1,4 +1,4 @@
-#![feature(iterator_fold_self)]
+#![feature(iterator_fold_self, option_zip)]
 
 use anyhow::{Context, Result};
 use rustacles_brokers::amqp::{AmqpBroker, Delivery};
@@ -10,8 +10,13 @@ use spectacles_proxy::ratelimiter::{
 	reqwest::{self, Method},
 	Ratelimiter,
 };
-use std::{collections::HashMap, convert::TryInto, str::FromStr, sync::Arc};
-use tokio::time::{delay_for, Duration};
+use std::{collections::HashMap, convert::TryInto, mem::drop, str::FromStr, sync::Arc};
+use tokio::{
+	select,
+	signal::ctrl_c,
+	sync::mpsc,
+	time::{delay_for, timeout, Duration},
+};
 use uriparse::{Path, Query, Scheme, URIBuilder};
 
 mod config;
@@ -26,6 +31,7 @@ struct SerializableHttpRequest {
 	body: Option<Value>,
 	#[serde(default)]
 	headers: HashMap<String, String>,
+	timeout: Option<Duration>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
@@ -47,6 +53,7 @@ enum ResponseStatus {
 	InvalidMethod,
 	InvalidHeaders,
 	RequestFailure,
+	RequestTimeout,
 }
 
 impl From<&(dyn std::error::Error + 'static)> for ResponseStatus {
@@ -100,22 +107,23 @@ where
 struct Client<'a, R> {
 	http: Arc<reqwest::Client>,
 	ratelimiter: Arc<R>,
-	broker: AmqpBroker,
+	broker: Arc<AmqpBroker>,
 	api_scheme: Scheme<'a>,
 	api_version: u8,
 	api_base: &'a str,
+	timeout: Option<Duration>,
 }
 
 impl<'a, R> Client<'a, R>
 where
 	R: Ratelimiter + Sync + Send + 'static,
 {
-	async fn handle_request(&self, message: Delivery) {
+	async fn handle_request(&self, message: &Delivery) {
 		let body: RequestResponse<Value> = self.handle_message(&message.data).await.into();
 
 		self.broker
 			.reply_to(
-				&message,
+				message,
 				serde_json::to_vec(&body).expect("Unable to serialize response body"),
 			)
 			.await
@@ -170,9 +178,13 @@ where
 			.build()
 			.context("Unable to build HTTP request")?;
 
-		let res = Arc::clone(&self.ratelimiter)
-			.make_request(Arc::clone(&self.http), http_req)
-			.await??;
+		let call = Arc::clone(&self.ratelimiter).make_request(Arc::clone(&self.http), http_req);
+
+		let res = if let Some(min_timeout) = self.timeout.min(data.timeout) {
+			timeout(min_timeout, call).await??
+		} else {
+			call.await?
+		};
 
 		Ok(SerializableHttpResponse {
 			status: res.status().as_u16(),
@@ -201,7 +213,7 @@ async fn main() {
 		.with_env();
 
 	let redis_client = redis::Client::open(config.redis.url).expect("Unable to connect to Redis");
-	let broker: AmqpBroker = loop {
+	let broker = Arc::new(loop {
 		match AmqpBroker::new(
 			&config.amqp.url,
 			config.amqp.group.clone(),
@@ -214,7 +226,7 @@ async fn main() {
 		}
 
 		delay_for(Duration::from_secs(5)).await;
-	};
+	});
 
 	let mut consumer = broker
 		.consume(&config.amqp.event)
@@ -232,18 +244,42 @@ async fn main() {
 
 	let client = Arc::new(Client {
 		http: Arc::new(reqwest::Client::new()),
-		broker,
+		broker: Arc::clone(&broker),
 		ratelimiter: Arc::new(ratelimiter),
 		api_base: "discord.com",
 		api_scheme: Scheme::HTTPS,
 		api_version: 6,
+		timeout: None,
 	});
 
+	let (republish_send, mut republish_recv) = mpsc::unbounded_channel::<Vec<u8>>();
+
 	println!("Beginning normal message consumption");
-	while let Some(message) = consumer.recv().await {
+	while let Some(message) = select! {
+		_ = ctrl_c() => None,
+		m = consumer.recv() => m,
+	} {
 		let client = Arc::clone(&client);
+		let republish_send = republish_send.clone();
 		tokio::spawn(async move {
-			client.handle_request(message).await;
+			select! {
+				_ = ctrl_c() => {
+					republish_send.send(message.data).expect("Unable to republish message on exit");
+				},
+				_ = client.handle_request(&message) => {}
+			};
 		});
+	}
+
+	drop(client);
+	drop(consumer);
+	drop(republish_send);
+
+	println!("Flushing incomplete messages back to AMQP before exiting");
+	while let Some(data) = republish_recv.recv().await {
+		broker
+			.publish("REQUEST", data, Default::default())
+			.await
+			.expect("Unable to republish message to AMQP");
 	}
 }

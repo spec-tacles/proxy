@@ -44,9 +44,10 @@ async fn handles_request() -> Result<()> {
 		api_base: mockito::SERVER_ADDRESS,
 		api_scheme: uriparse::Scheme::HTTP,
 		api_version: 6,
-		broker,
+		broker: Arc::new(broker),
 		http: Arc::new(reqwest::Client::new()),
 		ratelimiter: Arc::new(ratelimiter),
+		timeout: None,
 	};
 
 	let mock = mock("GET", "/api/v6/foo/bar")
@@ -56,7 +57,7 @@ async fn handles_request() -> Result<()> {
 
 	spawn(async move {
 		while let Some(message) = consumer.recv().await {
-			client.handle_request(message).await;
+			client.handle_request(&message).await;
 		}
 	});
 
@@ -66,6 +67,7 @@ async fn handles_request() -> Result<()> {
 		query: None,
 		body: None,
 		headers: Default::default(),
+		timeout: None,
 	};
 
 	let response = timeout(
