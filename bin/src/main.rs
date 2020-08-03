@@ -162,11 +162,16 @@ where
 
 		let url = builder.build()?;
 
-		let http_req = self
+		let mut req_builder = self
 			.http
 			.request(Method::from_str(&data.method)?, &url.to_string())
-			.headers((&data.headers).try_into()?)
-			.body(serde_json::to_vec(&data.body)?)
+			.headers((&data.headers).try_into()?);
+
+		if let Some(body) = data.body {
+			req_builder = req_builder.body(serde_json::to_vec(&body)?);
+		}
+
+		let http_req = req_builder
 			.build()
 			.context("Unable to build HTTP request")?;
 
