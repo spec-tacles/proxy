@@ -16,7 +16,7 @@ serde = "1.0"
 serde_json = "1.0"
 serde_repr = "0.1"
 spectacles-proxy = { path = "../core", features = ["redis-ratelimiter"] }
-tokio = { version = "0.2", features = ["rt-core", "rt-threaded", "macros"] }
+tokio = { version = "0.2", features = ["rt-core", "rt-threaded", "macros", "signal"] }
 toml = "0.5"
 uriparse = "0.6"
 
