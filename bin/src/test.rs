@@ -1,12 +1,14 @@
 use crate::{
-	config::Config, Client, RequestResponse, ResponseStatus, SerializableHttpRequest,
-	SerializableHttpResponse,
+	config::Config, Client
 };
 use anyhow::Result;
 use mockito::mock;
 use rustacles_brokers::amqp::AmqpBroker;
 use serde_json::{from_slice, json, to_vec};
-use spectacles_proxy::ratelimiter::{local::LocalRatelimiter, reqwest};
+use spectacles_proxy::{
+	models::*,
+	ratelimiter::{local::LocalRatelimiter, reqwest}
+};
 use std::sync::Arc;
 use tokio::{
 	spawn,

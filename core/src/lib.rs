@@ -3,4 +3,5 @@
 extern crate log;
 
 pub mod ratelimiter;
+pub mod models;
 pub mod route;

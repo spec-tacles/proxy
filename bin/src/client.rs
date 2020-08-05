@@ -1,10 +1,13 @@
-use super::*;
+// use super::*;
 use anyhow::{Context, Result};
 use rustacles_brokers::amqp::{AmqpBroker, Delivery};
 use serde_json::Value;
-use spectacles_proxy::ratelimiter::{
-	reqwest::{self, Method},
-	Ratelimiter,
+use spectacles_proxy::{
+	models::*,
+	ratelimiter::{
+		reqwest::{self, Method},
+		Ratelimiter,
+	},
 };
 use std::{convert::TryInto, str::FromStr, sync::Arc};
 use tokio::time::{timeout, Duration};

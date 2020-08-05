@@ -1616,11 +1616,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "env_logger",
+ "http",
  "log",
  "redis",
  "reqwest",
  "serde",
  "serde_json",
+ "serde_repr",
  "tokio",
  "uriparse",
 ]
@@ -1631,13 +1633,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "env_logger",
- "http",
  "log",
  "mockito",
  "rustacles-brokers",
  "serde",
  "serde_json",
- "serde_repr",
  "spectacles-proxy",
  "tokio",
  "toml",
