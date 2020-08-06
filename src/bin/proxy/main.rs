@@ -2,6 +2,7 @@
 
 use rustacles_brokers::amqp::AmqpBroker;
 use spectacles_proxy::ratelimiter::{
+	models::*,
 	redis::{redis, RedisRatelimiter},
 	reqwest,
 };
@@ -16,13 +17,11 @@ use uriparse::Scheme;
 
 mod client;
 mod config;
-mod models;
 #[cfg(test)]
 mod test;
 
 pub use client::*;
 pub use config::*;
-pub use models::*;
 
 #[tokio::main]
 async fn main() {
