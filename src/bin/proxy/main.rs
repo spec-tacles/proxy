@@ -1,10 +1,12 @@
 #![feature(iterator_fold_self)]
 
 use rustacles_brokers::amqp::AmqpBroker;
-use spectacles_proxy::ratelimiter::{
+use spectacles_proxy::{
 	models::*,
-	redis::{redis, RedisRatelimiter},
-	reqwest,
+	ratelimiter::{
+		redis::{redis, RedisRatelimiter},
+		reqwest,
+	}
 };
 use std::{mem::drop, sync::Arc};
 use tokio::{

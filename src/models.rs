@@ -2,7 +2,6 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_repr::*;
-use spectacles_proxy::ratelimiter::reqwest;
 use std::collections::HashMap;
 use tokio::time::Duration;
 
