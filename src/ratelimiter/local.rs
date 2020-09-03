@@ -1,5 +1,6 @@
 use super::{FutureResult, RatelimitInfo, Ratelimiter};
 use anyhow::anyhow;
+use log::debug;
 use std::{
 	collections::HashMap,
 	mem::drop,
@@ -16,7 +17,6 @@ use tokio::{
 	},
 	time::{delay_for, delay_until, Duration, Instant},
 };
-use log::debug;
 
 #[derive(Debug)]
 struct Bucket {

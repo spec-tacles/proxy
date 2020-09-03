@@ -1,10 +1,12 @@
 use super::*;
 use anyhow::{Context, Result};
-use rustacles_brokers::amqp::{AmqpBroker, Delivery};
-use serde_json::Value;
-use spectacles_proxy::ratelimiter::{
-	reqwest::{self, Method},
-	Ratelimiter,
+use rustacles_brokers::amqp::Message;
+use spectacles_proxy::{
+	ratelimiter::{
+		reqwest::{self, Method, Request},
+		Ratelimiter,
+	},
+	route::make_route,
 };
 use std::{convert::TryInto, str::FromStr, sync::Arc};
 use tokio::time::{timeout, Duration};
@@ -13,7 +15,6 @@ use uriparse::{Path, Query, Scheme, URIBuilder};
 pub struct Client<'a, R> {
 	pub http: Arc<reqwest::Client>,
 	pub ratelimiter: Arc<R>,
-	pub broker: Arc<AmqpBroker>,
 	pub api_scheme: Scheme<'a>,
 	pub api_version: u8,
 	pub api_base: &'a str,
@@ -24,21 +25,7 @@ impl<'a, R> Client<'a, R>
 where
 	R: Ratelimiter + Sync + Send + 'static,
 {
-	pub async fn handle_request(&self, message: &Delivery) {
-		let body: RequestResponse<Value> = self.handle_message(&message.data).await.into();
-
-		self.broker
-			.reply_to(
-				message,
-				serde_json::to_vec(&body).expect("Unable to serialize response body"),
-			)
-			.await
-			.expect("Unable to respond to query");
-	}
-
-	async fn handle_message(&self, data: &[u8]) -> Result<SerializableHttpResponse> {
-		let data = serde_json::from_slice::<SerializableHttpRequest>(&data)?;
-
+	fn create_request(&self, data: &SerializableHttpRequest) -> Result<Request> {
 		let path_str = format!(
 			"/api/v{}/{}",
 			self.api_version,
@@ -81,21 +68,38 @@ where
 			.request(Method::from_str(&data.method)?, &url.to_string())
 			.headers((&data.headers).try_into()?);
 
-		if let Some(body) = data.body {
+		if let Some(body) = &data.body {
 			req_builder = req_builder.body(serde_json::to_vec(&body)?);
 		}
 
-		let http_req = req_builder
+		Ok(req_builder
 			.build()
-			.context("Unable to build HTTP request")?;
+			.context("Unable to build HTTP request")?)
+	}
 
-		let call = Arc::clone(&self.ratelimiter).make_request(Arc::clone(&self.http), http_req);
+	async fn claim(&self, data: &SerializableHttpRequest) -> Result<(Request, String)> {
+		let req = self.create_request(&data)?;
+		let bucket = make_route(req.url().path())?;
+		self.ratelimiter.clone().claim(bucket.clone()).await?;
 
-		let res = if let Some(min_timeout) = self.timeout.min(data.timeout) {
-			timeout(min_timeout, call).await??
-		} else {
-			call.await?
-		};
+		Ok((req, bucket))
+	}
+
+	async fn do_request(
+		&self,
+		message: &Message,
+		data: &SerializableHttpRequest,
+	) -> Result<SerializableHttpResponse> {
+		let claim = self.claim(&data).await;
+		message.ack().await?;
+		let (req, bucket) = claim?;
+
+		let res = self.http.execute(req).await;
+		self.ratelimiter
+			.clone()
+			.release(bucket, res.as_ref().into())
+			.await?;
+		let res = res?;
 
 		Ok(SerializableHttpResponse {
 			status: res.status().as_u16(),
@@ -112,5 +116,25 @@ where
 			url: res.url().to_string(),
 			body: res.json().await?,
 		})
+	}
+
+	pub async fn handle_message(&self, message: &Message) -> Result<()> {
+		let data = serde_json::from_slice::<SerializableHttpRequest>(&message.data)?;
+		let req = self.do_request(&message, &data);
+
+		let body: RequestResponse<Value> =
+			if let Some(min_timeout) = self.timeout.min(data.timeout) {
+				timeout(min_timeout, req).await?
+			} else {
+				req.await
+			}
+			.into();
+
+		message
+			.reply(serde_json::to_vec(&body).expect("Unable to serialize response body"))
+			.await
+			.expect("Unable to respond to query");
+
+		Ok(())
 	}
 }

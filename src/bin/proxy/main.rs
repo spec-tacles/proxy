@@ -1,18 +1,22 @@
-#![feature(iterator_fold_self)]
+#![feature(iterator_fold_self, maybe_uninit_ref)]
+
+#[macro_use]
+extern crate log;
 
 use rustacles_brokers::amqp::AmqpBroker;
+use serde_json::Value;
 use spectacles_proxy::{
 	models::*,
 	ratelimiter::{
 		redis::{redis, RedisRatelimiter},
 		reqwest,
-	}
+	},
 };
-use std::{mem::drop, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 use tokio::{
 	select,
 	signal::ctrl_c,
-	sync::mpsc,
+	sync::{Mutex, Notify},
 	time::{delay_for, Duration},
 };
 use uriparse::Scheme;
@@ -43,7 +47,7 @@ async fn main() {
 		.await
 		{
 			Ok(b) => break b,
-			Err(e) => eprintln!("Error connecting to AMQP; retrying in 5s: {}", e),
+			Err(e) => error!("Error connecting to AMQP; retrying in 5s: {}", e),
 		}
 
 		delay_for(Duration::from_secs(5)).await;
@@ -54,53 +58,88 @@ async fn main() {
 		.await
 		.expect("Unable to setup message consumption");
 
+	let mut cancellation_consumer = broker
+		.consume(&config.amqp.cancellation_event)
+		.await
+		.expect("Unable to setup cancellation message consumption");
+
 	let ratelimiter = loop {
 		match RedisRatelimiter::new(&redis_client).await {
 			Ok(r) => break r,
-			Err(e) => eprintln!("Error setting up Redis ratelimiter; retrying in 5s: {}", e),
+			Err(e) => error!("Error setting up Redis ratelimiter; retrying in 5s: {}", e),
 		}
 
 		delay_for(Duration::from_secs(5)).await;
 	};
 
+	let cancellations: Arc<Mutex<HashMap<String, Arc<Notify>>>> = Default::default();
+	let consume_cancellations = Arc::clone(&cancellations);
+	tokio::spawn(async move {
+		while let Some(message) = cancellation_consumer.recv().await {
+			if let Ok(id) = String::from_utf8(message.data) {
+				trace!("Received cancellation for request \"{}\"", &id);
+				consume_cancellations
+					.lock()
+					.await
+					.remove(&id)
+					.map(|n| n.notify());
+			} else {
+				warn!("Received invalid UTF-8 cancellation request data");
+			}
+		}
+	});
+
 	let client = Arc::new(Client {
 		http: Arc::new(reqwest::Client::new()),
-		broker: Arc::clone(&broker),
 		ratelimiter: Arc::new(ratelimiter),
 		api_base: "discord.com",
 		api_scheme: Scheme::HTTPS,
 		api_version: 6,
-		timeout: None,
+		timeout: config.timeout.map(|d| d.into()),
 	});
 
-	let (republish_send, mut republish_recv) = mpsc::unbounded_channel::<Vec<u8>>();
-
-	println!("Beginning normal message consumption");
+	info!("Beginning normal message consumption");
 	while let Some(message) = select! {
 		_ = ctrl_c() => None,
 		m = consumer.recv() => m,
 	} {
 		let client = Arc::clone(&client);
-		let republish_send = republish_send.clone();
+		let cancellations = Arc::clone(&cancellations);
+
+		trace!("Received message");
 		tokio::spawn(async move {
+			let cancellation = Arc::new(Notify::new());
+			let maybe_correlation_id = message
+				.properties
+				.correlation_id()
+				.as_ref()
+				.map(|id| id.to_string());
+
+			if let Some(correlation_id) = &maybe_correlation_id {
+				cancellations
+					.lock()
+					.await
+					.insert(correlation_id.clone(), Arc::clone(&cancellation));
+			}
+
 			select! {
 				_ = ctrl_c() => {
-					republish_send.send(message.data).expect("Unable to republish message on exit");
+					trace!("SIGINT received; cancelling request");
 				},
-				_ = client.handle_request(&message) => {}
+				_ = cancellation.notified() => {
+					trace!("Request cancelled");
+					// cancellation notifier is removed during notification, so we can exit here to avoid an extra lock
+					return;
+				},
+				result = client.handle_message(&message) => match result {
+					Ok(_) => trace!("Request completed"),
+					Err(e) => warn!("Request failed: {}", e),
+				},
 			};
+
+			if let Some(correlation_id) = &maybe_correlation_id {
+				cancellations.lock().await.remove(correlation_id);
+			}
 		});
-	}
-
-	drop(client);
-	drop(consumer);
-	drop(republish_send);
-
-	println!("Flushing incomplete messages back to AMQP before exiting");
-	while let Some(data) = republish_recv.recv().await {
-		broker
-			.publish("REQUEST", data, Default::default())
-			.await
-			.expect("Unable to republish message to AMQP");
 	}
 }

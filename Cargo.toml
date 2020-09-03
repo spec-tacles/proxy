@@ -14,11 +14,13 @@ required-features = ["redis-ratelimiter"]
 anyhow = "1.0"
 env_logger = "0.7"
 http = "0.2"
+humantime = "2.0"
 log = "0.4"
 rustacles-brokers = { git = "https://github.com/spec-tacles/rustacles", branch = "feat/rpc" }
 serde = "1.0"
 serde_json = "1.0"
 serde_repr = "0.1"
+serde_with = "1.4"
 tokio = { version = "0.2", features = ["rt-core", "rt-threaded", "signal", "stream", "sync", "time"] }
 toml = "0.5"
 uriparse = "0.6"
@@ -33,6 +35,9 @@ default-features = false
 [features]
 default = []
 redis-ratelimiter = ["redis"]
+
+[dev-dependencies]
+mockito = "0.27"
 
 [dev-dependencies.tokio]
 version = "0.2"

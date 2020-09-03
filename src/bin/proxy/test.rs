@@ -44,7 +44,6 @@ async fn handles_request() -> Result<()> {
 		api_base: mockito::SERVER_ADDRESS,
 		api_scheme: uriparse::Scheme::HTTP,
 		api_version: 6,
-		broker: Arc::new(broker),
 		http: Arc::new(reqwest::Client::new()),
 		ratelimiter: Arc::new(ratelimiter),
 		timeout: None,
@@ -57,7 +56,10 @@ async fn handles_request() -> Result<()> {
 
 	spawn(async move {
 		while let Some(message) = consumer.recv().await {
-			client.handle_request(&message).await;
+			client
+				.handle_message(&message)
+				.await
+				.expect("Unable to handle message");
 		}
 	});
 

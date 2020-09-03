@@ -1,6 +1,10 @@
 use anyhow::Result;
-use serde::Deserialize;
-use std::env;
+use humantime::Duration;
+use serde::{
+	de::{Deserializer, Visitor},
+	Deserialize,
+};
+use std::{env, fmt, str::FromStr};
 
 #[derive(Debug, Default, Deserialize)]
 pub struct Config {
@@ -8,6 +12,33 @@ pub struct Config {
 	pub redis: RedisConfig,
 	#[serde(default)]
 	pub amqp: AmqpConfig,
+	#[serde(default, deserialize_with = "deserialize_duration")]
+	pub timeout: Option<Duration>,
+}
+
+fn deserialize_duration<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
+where
+	D: Deserializer<'de>,
+{
+	struct DurationVisitor;
+
+	impl<'de> Visitor<'de> for DurationVisitor {
+		type Value = Option<Duration>;
+
+		fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+			write!(f, "string")
+		}
+
+		fn visit_str<E>(self, value: &str) -> Result<Option<Duration>, E> {
+			Ok(Some(Duration::from_str(value).unwrap()))
+		}
+
+		fn visit_none<E>(self) -> Result<Option<Duration>, E> {
+			Ok(None)
+		}
+	}
+
+	deserializer.deserialize_any(DurationVisitor {})
 }
 
 impl Config {
@@ -23,6 +54,8 @@ impl Config {
 				"AMQP_GROUP" => self.amqp.group = v,
 				"AMQP_SUBGROUP" => self.amqp.subgroup = Some(v),
 				"AMQP_EVENT" => self.amqp.event = v,
+				"AMQP_CANCELLATION_EVENT" => self.amqp.cancellation_event = v,
+				"TIMEOUT" => self.timeout = v.parse().ok(),
 				_ => {}
 			}
 		}
@@ -61,6 +94,8 @@ pub struct AmqpConfig {
 	pub subgroup: Option<String>,
 	#[serde(default = "AmqpConfig::default_event")]
 	pub event: String,
+	#[serde(default = "AmqpConfig::default_cancellation_event")]
+	pub cancellation_event: String,
 }
 
 impl AmqpConfig {
@@ -75,6 +110,10 @@ impl AmqpConfig {
 	fn default_event() -> String {
 		"REQUEST".into()
 	}
+
+	fn default_cancellation_event() -> String {
+		"CANCEL".into()
+	}
 }
 
 impl Default for AmqpConfig {
@@ -84,6 +123,7 @@ impl Default for AmqpConfig {
 			group: Self::default_group(),
 			subgroup: None,
 			event: Self::default_event(),
+			cancellation_event: Self::default_cancellation_event(),
 		}
 	}
 }

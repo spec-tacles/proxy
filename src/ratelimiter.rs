@@ -1,7 +1,6 @@
-use super::route::make_route;
 use anyhow::Result;
 pub use reqwest;
-use reqwest::{header::HeaderMap, Client, Request, Response};
+use reqwest::{header::HeaderMap, Response};
 use std::{future::Future, pin::Pin, str::FromStr, sync::Arc};
 
 pub mod local;
@@ -13,20 +12,6 @@ pub type FutureResult<T> = Pin<Box<dyn Future<Output = Result<T>> + Send>>;
 pub trait Ratelimiter {
 	fn claim(self: Arc<Self>, bucket: String) -> FutureResult<()>;
 	fn release(self: Arc<Self>, bucket: String, info: RatelimitInfo) -> FutureResult<()>;
-
-	fn make_request(self: Arc<Self>, client: Arc<Client>, req: Request) -> FutureResult<Response>
-	where
-		Self: Send + Sync + 'static,
-	{
-		let this = Arc::clone(&self);
-		Box::pin(async move {
-			let bucket = make_route(req.url().path())?;
-			this.clone().claim(bucket.clone()).await?;
-			let result = client.execute(req).await;
-			this.release(bucket, result.as_ref().into()).await?;
-			Ok(result?)
-		})
-	}
 }
 
 #[derive(Debug, Default, Eq, PartialEq)]
