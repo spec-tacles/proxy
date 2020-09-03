@@ -9,7 +9,7 @@ use spectacles_proxy::{
 	route::make_route,
 };
 use std::{convert::TryInto, str::FromStr, sync::Arc};
-use tokio::time::{timeout, Duration};
+use tokio::time::{self, Duration};
 use uriparse::{Path, Query, Scheme, URIBuilder};
 
 pub struct Client<'a, R> {
@@ -25,7 +25,7 @@ impl<'a, R> Client<'a, R>
 where
 	R: Ratelimiter + Sync + Send + 'static,
 {
-	fn create_request(&self, data: &SerializableHttpRequest) -> Result<Request> {
+	fn create_request(&self, data: SerializableHttpRequest) -> Result<Request> {
 		let path_str = format!(
 			"/api/v{}/{}",
 			self.api_version,
@@ -68,8 +68,8 @@ where
 			.request(Method::from_str(&data.method)?, &url.to_string())
 			.headers((&data.headers).try_into()?);
 
-		if let Some(body) = &data.body {
-			req_builder = req_builder.body(rmp_serde::to_vec(&body)?);
+		if let Some(body) = data.body {
+			req_builder = req_builder.body(body);
 		}
 
 		Ok(req_builder
@@ -77,8 +77,8 @@ where
 			.context("Unable to build HTTP request")?)
 	}
 
-	async fn claim(&self, data: &SerializableHttpRequest) -> Result<(Request, String)> {
-		let req = self.create_request(&data)?;
+	async fn claim(&self, data: SerializableHttpRequest) -> Result<(Request, String)> {
+		let req = self.create_request(data)?;
 		let bucket = make_route(req.url().path())?;
 		self.ratelimiter.clone().claim(bucket.clone()).await?;
 
@@ -88,9 +88,9 @@ where
 	async fn do_request(
 		&self,
 		message: &Message,
-		data: &SerializableHttpRequest,
+		data: SerializableHttpRequest,
 	) -> Result<SerializableHttpResponse> {
-		let claim = self.claim(&data).await;
+		let claim = self.claim(data).await;
 		message.ack().await?;
 		let (req, bucket) = claim?;
 
@@ -120,11 +120,12 @@ where
 
 	pub async fn handle_message(&self, message: &Message) -> Result<()> {
 		let data = rmp_serde::from_slice::<SerializableHttpRequest>(&message.data)?;
-		let req = self.do_request(&message, &data);
+		let timeout = data.timeout;
+		let req = self.do_request(&message, data);
 
 		let body: RequestResponse<SerializableHttpResponse> =
-			if let Some(min_timeout) = self.timeout.min(data.timeout) {
-				timeout(min_timeout, req).await?
+			if let Some(min_timeout) = self.timeout.min(timeout) {
+				time::timeout(min_timeout, req).await?
 			} else {
 				req.await
 			}

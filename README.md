@@ -41,7 +41,7 @@ Requests can be explicitly cancelled by the client by publishing an event to the
 
 ### Request Format
 
-Requests can be made by publishing on the specified event to the specified group. The data must be serialized in JSON format.
+Requests can be made by publishing on the specified event to the specified group. The data must be serialized in MessagePack format.
 
 ```json
 {
@@ -50,20 +50,18 @@ Requests can be made by publishing on the specified event to the specified group
 	"query": {
 		"foo": "bar"
 	},
-	"body": {
-		"abc": "xyz"
-	},
+	"body": [],
 	"headers": {
 		"def": "uvw"
 	}
 }
 ```
 
-`query`, `body`, and `headers` are optional. Body must be any valid JSON value.
+`query`, `body`, and `headers` are optional. Body must be binary data.
 
 ### Response Format
 
-The response is returned on the callback queue in the following JSON format.
+The response is returned on the callback queue in the following MessagePack format.
 
 ```json
 {
@@ -97,10 +95,10 @@ For a successful call (status 0), the body will be an object representing the HT
 		"foo": "bar"
 	},
 	"url": "https://discord.com/api/v6/users/4567",
-	"body": "a"
+	"body": []
 }
 ```
 
-`url` represents the full, final URL of the request. `body` is any valid JSON as returned from the server.
+`url` represents the full, final URL of the request. `body` is the binary response body from the server.
 
 For an unsuccessful status code (non-zero status), the body will be a string describing the error.
