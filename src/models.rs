@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_repr::*;
 use std::collections::HashMap;
-use tokio::time::Duration;
+use tokio::time::{Duration, Elapsed};
 
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct SerializableHttpRequest {
@@ -52,6 +52,8 @@ impl From<&(dyn std::error::Error + 'static)> for ResponseStatus {
 			ResponseStatus::InvalidHeaders
 		} else if e.is::<reqwest::Error>() {
 			ResponseStatus::RequestFailure
+		} else if e.is::<Elapsed>() {
+			ResponseStatus::RequestTimeout
 		} else {
 			ResponseStatus::Unknown
 		}

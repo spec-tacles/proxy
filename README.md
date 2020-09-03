@@ -79,6 +79,7 @@ The response is returned on the callback queue in the following JSON format.
 5|Invalid HTTP method
 6|Invalid HTTP headers
 7|Request failure
+8|Request timeout
 
 #### Response Body
 
