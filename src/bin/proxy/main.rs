@@ -88,7 +88,7 @@ async fn main() {
 	});
 
 	let client = Arc::new(Client {
-		http: Arc::new(reqwest::Client::new()),
+		http: reqwest::Client::new(),
 		ratelimiter: Arc::new(ratelimiter),
 		api_base: "discord.com",
 		api_scheme: Scheme::HTTPS,

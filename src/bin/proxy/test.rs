@@ -44,7 +44,7 @@ async fn handles_request() -> Result<()> {
 		api_base: mockito::SERVER_ADDRESS,
 		api_scheme: uriparse::Scheme::HTTP,
 		api_version: 6,
-		http: Arc::new(reqwest::Client::new()),
+		http: reqwest::Client::new(),
 		ratelimiter: Arc::new(ratelimiter),
 		timeout: None,
 	};

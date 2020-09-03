@@ -12,8 +12,9 @@ use std::{convert::TryInto, str::FromStr, sync::Arc};
 use tokio::time::{self, Duration};
 use uriparse::{Path, Query, Scheme, URIBuilder};
 
+#[derive(Debug, Clone)]
 pub struct Client<'a, R> {
-	pub http: Arc<reqwest::Client>,
+	pub http: reqwest::Client,
 	pub ratelimiter: Arc<R>,
 	pub api_scheme: Scheme<'a>,
 	pub api_version: u8,
