@@ -28,11 +28,16 @@ url = "amqp://localhost:5672/%2f" # AMQP_URL
 group = "rest" # AMQP_GROUP
 # subgroup = "foo" # AMQP_SUBGROUP
 event = "REQUEST" # AMQP_EVENT
+cancellation_event = "CANCEL" # AMQP_CANCELLATION_EVENT
 ```
 
 ### Timeout
 
 The timeout is a human-readable duration (e.g. 2min). It applies for the entire duration of the request, including time paused for ratelimiting. Once the timeout occurs, the proxy will attempt to stop the request; however, it's possible for the data to be sent to Discord and the timeout to occur during the response, meaning that your client will receive the error but the request will have succeeded. This is done to protect against indefinitely hung requests in case Discord doesn't respond.
+
+### Cancellation
+
+Requests can be explicitly cancelled by the client by publishing an event to the `amqp.cancellation_event` queue with the correlation ID of the request to cancel. This ID must be valid UTF-8.
 
 ### Request Format
 
