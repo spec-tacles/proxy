@@ -15,7 +15,6 @@ use spectacles_proxy::{
 use std::{collections::HashMap, sync::Arc};
 use tokio::{
 	select,
-	signal::ctrl_c,
 	sync::{Mutex, Notify},
 	time::{delay_for, Duration},
 };
@@ -99,10 +98,7 @@ async fn main() {
 	});
 
 	info!("Beginning normal message consumption");
-	while let Some(message) = select! {
-		_ = ctrl_c() => None,
-		m = consumer.recv() => m,
-	} {
+	while let Some(message) = consumer.recv().await {
 		let client = Arc::clone(&client);
 		let cancellations = Arc::clone(&cancellations);
 
@@ -123,9 +119,6 @@ async fn main() {
 			}
 
 			select! {
-				_ = ctrl_c() => {
-					trace!("SIGINT received; cancelling request");
-				},
 				_ = cancellation.notified() => {
 					trace!("Request cancelled");
 					// cancellation notifier is removed during notification, so we can exit here to avoid an extra lock
