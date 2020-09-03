@@ -69,7 +69,7 @@ where
 			.headers((&data.headers).try_into()?);
 
 		if let Some(body) = &data.body {
-			req_builder = req_builder.body(serde_json::to_vec(&body)?);
+			req_builder = req_builder.body(rmp_serde::to_vec(&body)?);
 		}
 
 		Ok(req_builder
@@ -119,10 +119,10 @@ where
 	}
 
 	pub async fn handle_message(&self, message: &Message) -> Result<()> {
-		let data = serde_json::from_slice::<SerializableHttpRequest>(&message.data)?;
+		let data = rmp_serde::from_slice::<SerializableHttpRequest>(&message.data)?;
 		let req = self.do_request(&message, &data);
 
-		let body: RequestResponse<Value> =
+		let body: RequestResponse<SerializableHttpResponse> =
 			if let Some(min_timeout) = self.timeout.min(data.timeout) {
 				timeout(min_timeout, req).await?
 			} else {
@@ -131,7 +131,7 @@ where
 			.into();
 
 		message
-			.reply(serde_json::to_vec(&body).expect("Unable to serialize response body"))
+			.reply(rmp_serde::to_vec(&body).expect("Unable to serialize response body"))
 			.await
 			.expect("Unable to respond to query");
 

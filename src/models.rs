@@ -1,6 +1,5 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use serde_repr::*;
 use std::collections::HashMap;
 use tokio::time::{Duration, Elapsed};
@@ -10,7 +9,8 @@ pub struct SerializableHttpRequest {
 	pub method: String,
 	pub path: String,
 	pub query: Option<HashMap<String, String>>,
-	pub body: Option<Value>,
+	#[serde(with = "serde_bytes")]
+	pub body: Option<Vec<u8>>,
 	#[serde(default)]
 	pub headers: HashMap<String, String>,
 	pub timeout: Option<Duration>,
@@ -21,7 +21,8 @@ pub struct SerializableHttpResponse {
 	pub status: u16,
 	pub headers: HashMap<String, String>,
 	pub url: String,
-	pub body: Value,
+	#[serde(with = "serde_bytes")]
+	pub body: Vec<u8>,
 }
 
 #[repr(u8)]
@@ -40,7 +41,7 @@ pub enum ResponseStatus {
 
 impl From<&(dyn std::error::Error + 'static)> for ResponseStatus {
 	fn from(e: &(dyn std::error::Error + 'static)) -> Self {
-		if e.is::<serde_json::Error>() {
+		if e.is::<rmp_serde::decode::Error>() {
 			ResponseStatus::InvalidRequestFormat
 		} else if e.is::<uriparse::PathError>() {
 			ResponseStatus::InvalidPath
@@ -63,10 +64,17 @@ impl From<&(dyn std::error::Error + 'static)> for ResponseStatus {
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct RequestResponse<T> {
 	pub status: ResponseStatus,
-	pub body: T,
+	pub body: RequestResponseBody<T>,
 }
 
-impl<T> From<Result<T>> for RequestResponse<Value>
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(untagged)]
+pub enum RequestResponseBody<T> {
+	Ok(T),
+	Err(String),
+}
+
+impl<T> From<Result<T>> for RequestResponse<T>
 where
 	T: Serialize,
 {
@@ -76,13 +84,12 @@ where
 				let e_ref: &(dyn std::error::Error) = e.as_ref();
 				Self {
 					status: e_ref.into(),
-					body: serde_json::to_value(e.to_string())
-						.expect("Unable to serialize response error"),
+					body: RequestResponseBody::Err(e.to_string()),
 				}
 			}
 			Ok(t) => Self {
 				status: ResponseStatus::Success,
-				body: serde_json::to_value(t).expect("Unable to serialize response data"),
+				body: RequestResponseBody::Ok(t),
 			},
 		}
 	}

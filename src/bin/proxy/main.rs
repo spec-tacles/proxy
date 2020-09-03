@@ -4,7 +4,6 @@
 extern crate log;
 
 use rustacles_brokers::amqp::AmqpBroker;
-use serde_json::Value;
 use spectacles_proxy::{
 	models::*,
 	ratelimiter::{

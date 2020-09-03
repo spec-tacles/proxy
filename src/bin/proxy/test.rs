@@ -1,11 +1,11 @@
 use crate::{
-	config::Config, Client, RequestResponse, ResponseStatus, SerializableHttpRequest,
-	SerializableHttpResponse,
+	config::Config, Client, RequestResponse, RequestResponseBody, ResponseStatus,
+	SerializableHttpRequest, SerializableHttpResponse,
 };
 use anyhow::Result;
 use mockito::mock;
+use rmp_serde::{from_slice, to_vec};
 use rustacles_brokers::amqp::AmqpBroker;
-use serde_json::{from_slice, json, to_vec};
 use spectacles_proxy::ratelimiter::{local::LocalRatelimiter, reqwest};
 use std::sync::Arc;
 use tokio::{
@@ -50,7 +50,7 @@ async fn handles_request() -> Result<()> {
 	};
 
 	let mock = mock("GET", "/api/v6/foo/bar")
-		.with_body("[\"hello world\"]")
+		.with_body(rmp_serde::to_vec(&["hello world"])?)
 		.create();
 	let mock_addr = mockito::server_address();
 
@@ -88,7 +88,7 @@ async fn handles_request() -> Result<()> {
 	assert_eq!(response.status, ResponseStatus::Success);
 	assert_eq!(
 		response.body,
-		SerializableHttpResponse {
+		RequestResponseBody::Ok(SerializableHttpResponse {
 			status: 200,
 			headers: vec![
 				("connection".to_string(), "close".to_string()),
@@ -97,8 +97,8 @@ async fn handles_request() -> Result<()> {
 			.into_iter()
 			.collect(),
 			url: format!("http://{}/api/v6/foo/bar", mock_addr),
-			body: json!(["hello world"]),
-		}
+			body: rmp_serde::to_vec(&["hello world"])?,
+		})
 	);
 
 	Ok(())
