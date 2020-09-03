@@ -18,6 +18,8 @@ The proxy communicates with other services using the [Spectacles spec](https://g
 The proxy can be configured with the following options. This file must be called `proxy.toml` and exist in the CWD. Alternatively, specify the values in the environment variables named adjacently. The following example contains the default values.
 
 ```toml
+timeout = "" # TIMEOUT
+
 [redis]
 url = "redis://localhost:6379" # REDIS_URL
 
@@ -27,6 +29,10 @@ group = "rest" # AMQP_GROUP
 # subgroup = "foo" # AMQP_SUBGROUP
 event = "REQUEST" # AMQP_EVENT
 ```
+
+### Timeout
+
+The timeout is a human-readable duration (e.g. 2min). It applies for the entire duration of the request, including time paused for ratelimiting. Once the timeout occurs, the proxy will attempt to stop the request; however, it's possible for the data to be sent to Discord and the timeout to occur during the response, meaning that your client will receive the error but the request will have succeeded. This is done to protect against indefinitely hung requests in case Discord doesn't respond.
 
 ### Request Format
 
