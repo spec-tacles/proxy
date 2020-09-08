@@ -120,7 +120,13 @@ where
 	}
 
 	pub async fn handle_message(&self, message: &Message) -> Result<()> {
-		let data = rmp_serde::from_slice::<SerializableHttpRequest>(&message.data)?;
+		let data = match rmp_serde::from_slice::<SerializableHttpRequest>(&message.data) {
+			Ok(data) => data,
+			Err(e) => {
+				message.ack().await?;
+				return Err(e.into());
+			},
+		};
 		let timeout = data.timeout;
 		let req = self.do_request(&message, data);
 
