@@ -8,6 +8,8 @@ use spectacles_proxy::{
 	},
 	route::make_route,
 };
+use rmp_serde::Serializer;
+use serde::Serialize;
 use std::{convert::TryInto, str::FromStr, sync::Arc};
 use tokio::time::{self, Duration};
 use uriparse::{Path, Query, Scheme, URIBuilder};
@@ -138,8 +140,11 @@ where
 			}
 			.into();
 
+		let mut buf = Vec::new();
+		body.serialize(&mut Serializer::new(&mut buf).with_struct_map()).expect("Unable to serialize response body");
+
 		message
-			.reply(rmp_serde::to_vec(&body).expect("Unable to serialize response body"))
+			.reply(buf)
 			.await
 			.expect("Unable to respond to query");
 

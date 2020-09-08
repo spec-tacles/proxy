@@ -74,10 +74,7 @@ pub enum RequestResponseBody<T> {
 	Err(String),
 }
 
-impl<T> From<Result<T>> for RequestResponse<T>
-where
-	T: Serialize,
-{
+impl<T> From<Result<T>> for RequestResponse<T> {
 	fn from(res: Result<T>) -> Self {
 		match res {
 			Err(e) => {
