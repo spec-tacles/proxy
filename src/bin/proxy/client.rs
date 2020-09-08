@@ -115,7 +115,7 @@ where
 				})
 				.collect(),
 			url: res.url().to_string(),
-			body: res.json().await?,
+			body: res.bytes().await?.to_vec(),
 		})
 	}
 
@@ -125,7 +125,7 @@ where
 			Err(e) => {
 				message.ack().await?;
 				return Err(e.into());
-			},
+			}
 		};
 		let timeout = data.timeout;
 		let req = self.do_request(&message, data);
