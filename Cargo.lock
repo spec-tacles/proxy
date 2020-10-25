@@ -1526,8 +1526,8 @@ dependencies = [
 
 [[package]]
 name = "rustacles-brokers"
-version = "0.1.0"
-source = "git+https://github.com/spec-tacles/rustacles?branch=feat/rpc#4f97cd78adf98117a5c119f9719f6e67d2d500db"
+version = "0.2.0"
+source = "git+https://github.com/spec-tacles/rustacles#48103eb1df8a38bcf3558d87fcb9fdcf2210bb30"
 dependencies = [
  "env_logger",
  "lapin",
