@@ -3,15 +3,13 @@ use anyhow::Result;
 pub use redis;
 use redis::Script;
 use std::{sync::Arc, time::Duration};
-use tokio::{
-	stream::StreamExt,
-	sync::{broadcast, Mutex},
-};
+use tokio::{stream::StreamExt, sync::broadcast};
 
 static NOTIFY_KEY: &'static str = "rest_ready";
 
+#[derive(Debug, Clone)]
 pub struct RedisRatelimiter {
-	redis: Mutex<redis::aio::Connection>,
+	redis: redis::Client,
 	claim_script: Script,
 	release_script: Script,
 	ready_publisher: broadcast::Sender<String>,
@@ -20,12 +18,11 @@ pub struct RedisRatelimiter {
 impl RedisRatelimiter {
 	pub async fn new(redis: &redis::Client) -> Result<Self> {
 		let pubsub = redis.get_async_connection().await?.into_pubsub();
-		let main = redis.get_async_connection().await?;
-		Self::new_from_connections(main, pubsub).await
+		Self::new_from_connections(redis.clone(), pubsub).await
 	}
 
 	pub async fn new_from_connections(
-		main: redis::aio::Connection,
+		redis: redis::Client,
 		mut pubsub: redis::aio::PubSub,
 	) -> Result<Self> {
 		pubsub.subscribe(NOTIFY_KEY).await?;
@@ -39,7 +36,7 @@ impl RedisRatelimiter {
 		});
 
 		Ok(Self {
-			redis: Mutex::new(main),
+			redis,
 			claim_script: Script::new(include_str!("./scripts/claim.lua")),
 			release_script: Script::new(include_str!("./scripts/release.lua")),
 			ready_publisher: sender,
@@ -55,7 +52,7 @@ impl Ratelimiter for RedisRatelimiter {
 					.claim_script
 					.key(&bucket)
 					.key(bucket.to_string() + "_size")
-					.invoke_async(&mut *self.redis.lock().await)
+					.invoke_async(&mut self.redis.get_async_connection().await?)
 					.await?;
 
 				debug!("Received expiration of {}ms for \"{}\"", expiration, bucket);
@@ -90,7 +87,7 @@ impl Ratelimiter for RedisRatelimiter {
 				.key(NOTIFY_KEY)
 				.arg(info.limit.unwrap_or(0))
 				.arg(info.resets_in.unwrap_or(0))
-				.invoke_async(&mut *self.redis.lock().await)
+				.invoke_async(&mut self.redis.get_async_connection().await?)
 				.await?;
 
 			Ok(())
@@ -124,7 +121,7 @@ mod test {
 		let pubsub = pubsub.into_pubsub();
 
 		Ok(Arc::new(
-			RedisRatelimiter::new_from_connections(conn, pubsub).await?,
+			RedisRatelimiter::new_from_connections(client, pubsub).await?,
 		))
 	}
 

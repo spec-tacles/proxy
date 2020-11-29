@@ -1,13 +1,14 @@
+use crate::DynFuture;
 use anyhow::Result;
 pub use reqwest;
 use reqwest::{header::HeaderMap, Response};
-use std::{future::Future, pin::Pin, str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc};
 
 pub mod local;
 #[cfg(feature = "redis-ratelimiter")]
 pub mod redis;
 
-pub type FutureResult<T> = Pin<Box<dyn Future<Output = Result<T>> + Send>>;
+pub type FutureResult<T> = DynFuture<Result<T>>;
 
 pub trait Ratelimiter {
 	fn claim(self: Arc<Self>, bucket: String) -> FutureResult<()>;
