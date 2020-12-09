@@ -31,7 +31,7 @@ event = "REQUEST" # AMQP_EVENT
 cancellation_event = "CANCEL" # AMQP_CANCELLATION_EVENT
 
 [discord]
-api_version = 6
+api_version = 6 # DISCORD_API_VERSION
 ```
 
 ### Timeout
