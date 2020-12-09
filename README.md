@@ -29,6 +29,9 @@ group = "rest" # AMQP_GROUP
 # subgroup = "foo" # AMQP_SUBGROUP
 event = "REQUEST" # AMQP_EVENT
 cancellation_event = "CANCEL" # AMQP_CANCELLATION_EVENT
+
+[discord]
+api_version = 6
 ```
 
 ### Timeout
