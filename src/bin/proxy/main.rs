@@ -92,7 +92,7 @@ async fn main() {
 		ratelimiter: Arc::new(ratelimiter),
 		api_base: "discord.com",
 		api_scheme: Scheme::HTTPS,
-		api_version: 6,
+		api_version: config.discord.api_version,
 		timeout: config.timeout.map(|d| d.into()),
 	});
 

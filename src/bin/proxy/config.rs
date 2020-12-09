@@ -12,6 +12,8 @@ pub struct Config {
 	pub redis: RedisConfig,
 	#[serde(default)]
 	pub amqp: AmqpConfig,
+	#[serde(default)]
+	pub discord: DiscordConfig,
 	#[serde(default, deserialize_with = "deserialize_duration")]
 	pub timeout: Option<Duration>,
 }
@@ -56,6 +58,7 @@ impl Config {
 				"AMQP_EVENT" => self.amqp.event = v,
 				"AMQP_CANCELLATION_EVENT" => self.amqp.cancellation_event = v,
 				"TIMEOUT" => self.timeout = v.parse().ok(),
+				"DISCORD_API_VERSION" => self.discord.api_version = v.parse().expect("valid DISCORD_API_VERSION (u8)"),
 				_ => {}
 			}
 		}
@@ -124,6 +127,26 @@ impl Default for AmqpConfig {
 			subgroup: None,
 			event: Self::default_event(),
 			cancellation_event: Self::default_cancellation_event(),
+		}
+	}
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DiscordConfig {
+	#[serde(default = "DiscordConfig::default_api_version")]
+	pub api_version: u8,
+}
+
+impl DiscordConfig {
+	fn default_api_version() -> u8 {
+		return 6;
+	}
+}
+
+impl Default for DiscordConfig {
+	fn default() -> Self {
+		Self {
+			api_version: Self::default_api_version(),
 		}
 	}
 }
