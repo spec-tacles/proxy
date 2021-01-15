@@ -3,10 +3,8 @@ use anyhow::Result;
 pub use redis;
 use redis::Script;
 use std::{sync::Arc, time::Duration};
-use tokio::{
-	stream::StreamExt,
-	sync::{broadcast, Mutex},
-};
+use tokio::sync::{broadcast, Mutex};
+use tokio_stream::StreamExt;
 
 static NOTIFY_KEY: &'static str = "rest_ready";
 
@@ -61,7 +59,7 @@ impl Ratelimiter for RedisRatelimiter {
 				debug!("Received expiration of {}ms for \"{}\"", expiration, bucket);
 
 				if expiration.is_positive() {
-					tokio::time::delay_for(Duration::from_millis(expiration as u64)).await;
+					tokio::time::sleep(Duration::from_millis(expiration as u64)).await;
 					continue;
 				}
 

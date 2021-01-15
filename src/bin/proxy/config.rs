@@ -1,10 +1,7 @@
 use anyhow::Result;
-use humantime::Duration;
-use serde::{
-	de::{Deserializer, Visitor},
-	Deserialize,
-};
-use std::{env, fmt, str::FromStr};
+use humantime::parse_duration;
+use serde::Deserialize;
+use std::{env, time::Duration};
 
 #[derive(Debug, Default, Deserialize)]
 pub struct Config {
@@ -14,33 +11,8 @@ pub struct Config {
 	pub amqp: AmqpConfig,
 	#[serde(default)]
 	pub discord: DiscordConfig,
-	#[serde(default, deserialize_with = "deserialize_duration")]
+	#[serde(default, with = "humantime_serde")]
 	pub timeout: Option<Duration>,
-}
-
-fn deserialize_duration<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
-where
-	D: Deserializer<'de>,
-{
-	struct DurationVisitor;
-
-	impl<'de> Visitor<'de> for DurationVisitor {
-		type Value = Option<Duration>;
-
-		fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-			write!(f, "string")
-		}
-
-		fn visit_str<E>(self, value: &str) -> Result<Option<Duration>, E> {
-			Ok(Some(Duration::from_str(value).unwrap()))
-		}
-
-		fn visit_none<E>(self) -> Result<Option<Duration>, E> {
-			Ok(None)
-		}
-	}
-
-	deserializer.deserialize_any(DurationVisitor {})
 }
 
 impl Config {
@@ -57,8 +29,10 @@ impl Config {
 				"AMQP_SUBGROUP" => self.amqp.subgroup = Some(v),
 				"AMQP_EVENT" => self.amqp.event = v,
 				"AMQP_CANCELLATION_EVENT" => self.amqp.cancellation_event = v,
-				"TIMEOUT" => self.timeout = v.parse().ok(),
-				"DISCORD_API_VERSION" => self.discord.api_version = v.parse().expect("valid DISCORD_API_VERSION (u8)"),
+				"TIMEOUT" => self.timeout = parse_duration(&v).ok(),
+				"DISCORD_API_VERSION" => {
+					self.discord.api_version = v.parse().expect("valid DISCORD_API_VERSION (u8)")
+				}
 				_ => {}
 			}
 		}

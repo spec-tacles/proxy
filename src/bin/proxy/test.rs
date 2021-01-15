@@ -10,7 +10,7 @@ use spectacles_proxy::ratelimiter::{local::LocalRatelimiter, reqwest};
 use std::sync::Arc;
 use tokio::{
 	spawn,
-	time::{delay_for, timeout, Duration},
+	time::{advance, timeout, Duration},
 };
 
 #[tokio::test]
@@ -28,7 +28,7 @@ async fn handles_request() -> Result<()> {
 			break b;
 		}
 
-		delay_for(Duration::from_secs(5)).await;
+		advance(Duration::from_secs(5)).await;
 	};
 
 	let rpc_broker = AmqpBroker::new(&config.amqp.url, config.amqp.group, config.amqp.subgroup)
@@ -97,7 +97,7 @@ async fn handles_request() -> Result<()> {
 			.into_iter()
 			.collect(),
 			url: format!("http://{}/api/v6/foo/bar", mock_addr),
-			body: rmp_serde::to_vec(&["hello world"])?,
+			body: rmp_serde::to_vec(&["hello world"])?.into(),
 		})
 	);
 

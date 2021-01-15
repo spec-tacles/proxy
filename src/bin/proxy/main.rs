@@ -1,8 +1,6 @@
 #![feature(iterator_fold_self, maybe_uninit_ref)]
 
-#[macro_use]
-extern crate log;
-
+use log::{error, info, trace, warn};
 use rustacles_brokers::amqp::AmqpBroker;
 use spectacles_proxy::{
 	models::*,
@@ -15,7 +13,7 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::{
 	select,
 	sync::{Mutex, Notify},
-	time::{delay_for, Duration},
+	time::{sleep, Duration},
 };
 use uriparse::Scheme;
 
@@ -48,7 +46,7 @@ async fn main() {
 			Err(e) => error!("Error connecting to AMQP; retrying in 5s: {}", e),
 		}
 
-		delay_for(Duration::from_secs(5)).await;
+		sleep(Duration::from_secs(5)).await;
 	});
 
 	let mut consumer = broker
@@ -67,7 +65,7 @@ async fn main() {
 			Err(e) => error!("Error setting up Redis ratelimiter; retrying in 5s: {}", e),
 		}
 
-		delay_for(Duration::from_secs(5)).await;
+		sleep(Duration::from_secs(5)).await;
 	};
 
 	let cancellations: Arc<Mutex<HashMap<String, Arc<Notify>>>> = Default::default();
@@ -80,7 +78,7 @@ async fn main() {
 					.lock()
 					.await
 					.remove(&id)
-					.map(|n| n.notify());
+					.map(|n| n.notify_waiters());
 			} else {
 				warn!("Received invalid UTF-8 cancellation request data");
 			}

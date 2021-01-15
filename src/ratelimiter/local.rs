@@ -15,7 +15,7 @@ use tokio::{
 		mpsc::{self, Sender},
 		Mutex, RwLock, Semaphore,
 	},
-	time::{delay_for, delay_until, Duration, Instant},
+	time::{sleep, sleep_until, Duration, Instant},
 };
 
 #[derive(Debug)]
@@ -48,7 +48,7 @@ impl Ratelimiter for LocalRatelimiter {
 			let bucket = Arc::clone(claim.entry(bucket_name.clone()).or_default());
 			drop(claim);
 
-			bucket.ready.acquire().await.forget();
+			bucket.ready.acquire().await?.forget();
 
 			debug!("Acquired lock for \"{}\"", &bucket_name);
 			Ok(())
@@ -92,7 +92,7 @@ impl Ratelimiter for LocalRatelimiter {
 					}
 					None => {
 						debug!("Creating new expiration for \"{}\"", &bucket_name);
-						let mut delay = delay_for(duration);
+						let mut delay = sleep(duration);
 						let (sender, mut receiver) = mpsc::channel(1);
 						let timeout_bucket = Arc::clone(&bucket);
 						let bucket_name = bucket_name.clone();
@@ -101,7 +101,7 @@ impl Ratelimiter for LocalRatelimiter {
 								select! {
 									Some(new_instant) = receiver.recv() => {
 										debug!("Updating timeout for \"{}\" to {:?}", &bucket_name, new_instant);
-										delay = delay_until(new_instant);
+										delay = sleep_until(new_instant);
 									},
 									_ = delay => {
 										debug!("Releasing \"{}\" after timeout", &bucket_name);

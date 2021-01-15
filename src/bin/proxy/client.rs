@@ -1,17 +1,18 @@
 use super::*;
 use anyhow::{Context, Result};
+use rmp_serde::Serializer;
 use rustacles_brokers::amqp::Message;
+use serde::Serialize;
 use spectacles_proxy::{
 	ratelimiter::{
 		reqwest::{self, Method, Request},
 		Ratelimiter,
 	},
 	route::make_route,
+	stats::{RATELIMIT_LATENCY, REQUESTS_TOTAL, REQUEST_LATENCY, RESPONSES_TOTAL},
 };
-use rmp_serde::Serializer;
-use serde::Serialize;
 use std::{convert::TryInto, str::FromStr, sync::Arc};
-use tokio::time::{self, Duration};
+use tokio::time::{self, Duration, Instant};
 use uriparse::{Path, Query, Scheme, URIBuilder};
 
 #[derive(Debug, Clone)]
@@ -28,7 +29,7 @@ impl<'a, R> Client<'a, R>
 where
 	R: Ratelimiter + Sync + Send + 'static,
 {
-	fn create_request(&self, data: SerializableHttpRequest) -> Result<Request> {
+	fn create_request(&self, data: &SerializableHttpRequest) -> Result<Request> {
 		let path_str = format!(
 			"/api/v{}/{}",
 			self.api_version,
@@ -71,7 +72,7 @@ where
 			.request(Method::from_str(&data.method)?, &url.to_string())
 			.headers((&data.headers).try_into()?);
 
-		if let Some(body) = data.body {
+		if let Some(body) = data.body.clone() {
 			req_builder = req_builder.body(body);
 		}
 
@@ -80,7 +81,7 @@ where
 			.context("Unable to build HTTP request")?)
 	}
 
-	async fn claim(&self, data: SerializableHttpRequest) -> Result<(Request, String)> {
+	async fn claim(&self, data: &SerializableHttpRequest) -> Result<(Request, String)> {
 		let req = self.create_request(data)?;
 		let bucket = make_route(req.url().path())?;
 		self.ratelimiter.clone().claim(bucket.clone()).await?;
@@ -91,18 +92,40 @@ where
 	async fn do_request(
 		&self,
 		message: &Message,
-		data: SerializableHttpRequest,
+		data: &SerializableHttpRequest,
 	) -> Result<SerializableHttpResponse> {
+		let start = Instant::now();
 		let claim = self.claim(data).await;
+		let latency = Instant::now().duration_since(start);
+
+		let labels: [&str; 2] = [&data.method, &data.path];
+
+		RATELIMIT_LATENCY
+			.get_metric_with_label_values(&labels)?
+			.observe(latency.as_secs_f64());
+
 		message.ack().await?;
 		let (req, bucket) = claim?;
 
+		REQUESTS_TOTAL.get_metric_with_label_values(&labels)?.inc();
+
+		let start = Instant::now();
 		let res = self.http.execute(req).await;
+		let latency = Instant::now().duration_since(start);
+
 		self.ratelimiter
 			.clone()
 			.release(bucket, res.as_ref().into())
 			.await?;
 		let res = res?;
+
+		let status = res.status();
+		let labels = [&data.method, &data.path, status.as_str()];
+
+		RESPONSES_TOTAL.get_metric_with_label_values(&labels)?.inc();
+		REQUEST_LATENCY
+			.get_metric_with_label_values(&labels)?
+			.observe(latency.as_secs_f64());
 
 		Ok(SerializableHttpResponse {
 			status: res.status().as_u16(),
@@ -117,7 +140,7 @@ where
 				})
 				.collect(),
 			url: res.url().to_string(),
-			body: res.bytes().await?.to_vec(),
+			body: res.bytes().await?,
 		})
 	}
 
@@ -130,7 +153,7 @@ where
 			}
 		};
 		let timeout = data.timeout;
-		let req = self.do_request(&message, data);
+		let req = self.do_request(&message, &data);
 
 		let body: RequestResponse<SerializableHttpResponse> =
 			if let Some(min_timeout) = self.timeout.min(timeout) {
@@ -141,7 +164,8 @@ where
 			.into();
 
 		let mut buf = Vec::new();
-		body.serialize(&mut Serializer::new(&mut buf).with_struct_map()).expect("Unable to serialize response body");
+		body.serialize(&mut Serializer::new(&mut buf).with_struct_map())
+			.expect("Unable to serialize response body");
 
 		message
 			.reply(buf)
