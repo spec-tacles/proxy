@@ -1,35 +1,31 @@
-use crate::{
-	config::Config, Client, RequestResponse, RequestResponseBody, ResponseStatus,
-	SerializableHttpRequest, SerializableHttpResponse,
-};
 use anyhow::Result;
 use mockito::mock;
 use rmp_serde::{from_slice, to_vec};
 use rustacles_brokers::amqp::AmqpBroker;
 use spectacles_proxy::ratelimiter::{local::LocalRatelimiter, reqwest};
+use spectacles_proxy::{
+	models::{
+		RequestResponse, RequestResponseBody, ResponseStatus, SerializableHttpRequest,
+		SerializableHttpResponse,
+	},
+	runtime::{Client, Config},
+};
 use std::sync::Arc;
 use tokio::{
 	spawn,
-	time::{advance, timeout, Duration},
+	time::{timeout, Duration},
 };
 
 #[tokio::test]
 async fn handles_request() -> Result<()> {
 	let config = Config::default().with_env();
-	let broker: AmqpBroker = loop {
-		let broker_res = AmqpBroker::new(
-			&config.amqp.url,
-			config.amqp.group.clone(),
-			config.amqp.subgroup.clone(),
-		)
-		.await;
-
-		if let Ok(b) = broker_res {
-			break b;
-		}
-
-		advance(Duration::from_secs(5)).await;
-	};
+	let broker = AmqpBroker::new(
+		&config.amqp.url,
+		config.amqp.group.clone(),
+		config.amqp.subgroup.clone(),
+	)
+	.await
+	.expect("unable to create AMQP broker");
 
 	let rpc_broker = AmqpBroker::new(&config.amqp.url, config.amqp.group, config.amqp.subgroup)
 		.await?

@@ -1,13 +1,8 @@
-#![feature(iterator_fold_self, maybe_uninit_ref)]
-
 use log::{error, info, trace, warn};
 use rustacles_brokers::amqp::AmqpBroker;
 use spectacles_proxy::{
-	models::*,
-	ratelimiter::{
-		redis::{redis, RedisRatelimiter},
-		reqwest,
-	},
+	ratelimiter::{redis::RedisRatelimiter, reqwest},
+	runtime::{Client, Config},
 };
 use std::{collections::HashMap, sync::Arc};
 use tokio::{
@@ -16,14 +11,6 @@ use tokio::{
 	time::{sleep, Duration},
 };
 use uriparse::Scheme;
-
-mod client;
-mod config;
-#[cfg(test)]
-mod test;
-
-pub use client::*;
-pub use config::*;
 
 #[tokio::main]
 async fn main() {

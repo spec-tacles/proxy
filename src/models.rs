@@ -3,7 +3,7 @@ use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use serde_repr::*;
 use std::collections::HashMap;
-use tokio::time::{Duration, error::Elapsed};
+use tokio::time::{error::Elapsed, Duration};
 
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct SerializableHttpRequest {

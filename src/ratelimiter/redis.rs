@@ -1,6 +1,6 @@
 use super::{FutureResult, RatelimitInfo, Ratelimiter};
 use anyhow::Result;
-pub use redis;
+use log::debug;
 use redis::Script;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{broadcast, Mutex};

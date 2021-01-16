@@ -41,17 +41,19 @@ impl<'a, E> From<std::result::Result<&'a Response, E>> for RatelimitInfo {
 		}
 	}
 }
-
 #[cfg(test)]
 mod test {
 	use super::{RatelimitInfo, Ratelimiter};
 	use anyhow::{anyhow, Result};
-	use std::sync::{
-		atomic::{AtomicBool, Ordering},
-		Arc,
+	use std::{
+		sync::{
+			atomic::{AtomicBool, Ordering},
+			Arc,
+		},
+		time::{Duration, SystemTime},
 	};
 	use tokio::{
-		time::{advance, pause, timeout, Duration, Instant},
+		time::{sleep, timeout},
 		try_join,
 	};
 
@@ -61,8 +63,6 @@ mod test {
 			.format_timestamp_nanos()
 			.filter_level(log::LevelFilter::Debug)
 			.try_init();
-
-		pause();
 	}
 
 	async fn claim_timeout(
@@ -73,16 +73,16 @@ mod test {
 	) -> Result<()> {
 		let min = Duration::from_millis(min_millis);
 		let max = Duration::from_millis(max_millis);
-		let start = Instant::now();
+		let start = SystemTime::now();
 		timeout(max, client.claim(bucket.to_string())).await??;
 
-		let end = Instant::now();
+		let end = SystemTime::now();
 		if end < start + min {
 			return Err(anyhow!(
 				"failed to claim \"{}\" in more than {:?} (claimed in {:?})",
 				bucket,
 				min,
-				end.duration_since(start),
+				end.duration_since(start)?,
 			));
 		}
 
@@ -117,6 +117,7 @@ mod test {
 	pub async fn claim_timeout_release(client: Arc<impl Ratelimiter>) -> Result<()> {
 		claim_timeout(client.clone(), "foo", 0, 50).await?;
 
+		let start = SystemTime::now();
 		client
 			.clone()
 			.release(
@@ -130,7 +131,8 @@ mod test {
 
 		claim_timeout(client.clone(), "foo", 0, 50).await?;
 
-		let min = 5_000;
+		let min = Duration::from_secs(5) - SystemTime::now().duration_since(start)?;
+		let min = min.as_millis() as u64;
 		claim_timeout(client, "foo", min, min + 50).await?;
 		Ok(())
 	}
@@ -142,7 +144,7 @@ mod test {
 			claim_timeout(client.clone(), "foo", 10000, 10050),
 			async {
 				for _ in 0..2 {
-					advance(Duration::from_secs(5)).await;
+					sleep(Duration::from_secs(5)).await;
 					client
 						.clone()
 						.release(
@@ -189,7 +191,7 @@ mod test {
 				}
 			},
 			async {
-				advance(Duration::from_secs(5)).await;
+				sleep(Duration::from_secs(5)).await;
 				client
 					.clone()
 					.release(
@@ -211,6 +213,7 @@ mod test {
 	pub async fn claim_limit_timeout(client: Arc<impl Ratelimiter>) -> Result<()> {
 		claim_timeout(client.clone(), "foo", 0, 50).await?;
 
+		let start = SystemTime::now();
 		client
 			.clone()
 			.release(
@@ -226,7 +229,8 @@ mod test {
 			claim_timeout(client.clone(), "foo", 0, 50).await?;
 		}
 
-		let min = 5_000;
+		let min = Duration::from_secs(5) - SystemTime::now().duration_since(start)?;
+		let min = min.as_millis() as u64;
 		claim_timeout(client.clone(), "foo", min, min + 50).await?;
 		claim_timeout(client, "foo", 0, 50).await?;
 
@@ -236,6 +240,7 @@ mod test {
 	pub async fn claim_limit_release_timeout(client: Arc<impl Ratelimiter>) -> Result<()> {
 		claim_timeout(client.clone(), "foo", 0, 50).await?;
 
+		let start = SystemTime::now();
 		client
 			.clone()
 			.release(
@@ -251,7 +256,7 @@ mod test {
 			claim_timeout(client.clone(), "foo", 0, 50).await?;
 		}
 
-		advance(Duration::from_secs(1)).await;
+		sleep(Duration::from_secs(1)).await;
 		client
 			.clone()
 			.release(
@@ -263,7 +268,8 @@ mod test {
 			)
 			.await?;
 
-		let min = 4_000;
+		let min = Duration::from_secs(5) - SystemTime::now().duration_since(start)?;
+		let min = min.as_millis() as u64;
 		claim_timeout(client.clone(), "foo", min, min + 50).await?;
 		claim_timeout(client.clone(), "foo", 0, 50).await?;
 
