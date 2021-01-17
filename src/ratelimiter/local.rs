@@ -37,14 +37,14 @@ impl Default for Bucket {
 
 #[derive(Debug, Default)]
 pub struct LocalRatelimiter {
-	buckets: RwLock<HashMap<String, Arc<Bucket>>>,
+	buckets: Arc<RwLock<HashMap<String, Arc<Bucket>>>>,
 }
 
 impl Ratelimiter for LocalRatelimiter {
-	fn claim(self: Arc<Self>, bucket_name: String) -> FutureResult<()> {
-		let this = Arc::clone(&self);
+	fn claim(&self, bucket_name: String) -> FutureResult<()> {
+		let buckets = Arc::clone(&self.buckets);
 		Box::pin(async move {
-			let mut claim = this.buckets.write().await;
+			let mut claim = buckets.write().await;
 			let bucket = Arc::clone(claim.entry(bucket_name.clone()).or_default());
 			drop(claim);
 
@@ -55,15 +55,15 @@ impl Ratelimiter for LocalRatelimiter {
 		})
 	}
 
-	fn release(self: Arc<Self>, bucket_name: String, info: RatelimitInfo) -> FutureResult<()> {
-		let this = Arc::clone(&self);
+	fn release(&self, bucket_name: String, info: RatelimitInfo) -> FutureResult<()> {
+		let buckets = Arc::clone(&self.buckets);
 		let now = Instant::now();
 
 		Box::pin(async move {
 			debug!("Releasing \"{}\"", &bucket_name);
 
 			let bucket = Arc::clone(
-				this.buckets
+				buckets
 					.read()
 					.await
 					.get(&bucket_name)

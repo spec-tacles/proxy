@@ -1,12 +1,16 @@
 use log::{error, info, trace, warn};
 use rustacles_brokers::amqp::AmqpBroker;
+#[cfg(feature = "redis-ratelimiter")]
+use spectacles_proxy::{ratelimiter::redis::RedisRatelimiter};
+#[cfg(feature = "metrics")]
+use spectacles_proxy::runtime::metrics::start_server;
 use spectacles_proxy::{
-	ratelimiter::{redis::RedisRatelimiter, reqwest},
+	ratelimiter::{local::LocalRatelimiter, Ratelimiter},
 	runtime::{Client, Config},
 };
 use std::{collections::HashMap, sync::Arc};
 use tokio::{
-	select,
+	select, spawn,
 	sync::{Mutex, Notify},
 	time::{sleep, Duration},
 };
@@ -20,7 +24,6 @@ async fn main() {
 		.unwrap_or_default()
 		.with_env();
 
-	let redis_client = redis::Client::open(config.redis.url).expect("Unable to connect to Redis");
 	let broker = Arc::new(loop {
 		match AmqpBroker::new(
 			&config.amqp.url,
@@ -46,18 +49,9 @@ async fn main() {
 		.await
 		.expect("Unable to setup cancellation message consumption");
 
-	let ratelimiter = loop {
-		match RedisRatelimiter::new(&redis_client).await {
-			Ok(r) => break r,
-			Err(e) => error!("Error setting up Redis ratelimiter; retrying in 5s: {}", e),
-		}
-
-		sleep(Duration::from_secs(5)).await;
-	};
-
 	let cancellations: Arc<Mutex<HashMap<String, Arc<Notify>>>> = Default::default();
 	let consume_cancellations = Arc::clone(&cancellations);
-	tokio::spawn(async move {
+	spawn(async move {
 		while let Some(message) = cancellation_consumer.recv().await {
 			if let Ok(id) = String::from_utf8(message.data) {
 				trace!("Received cancellation for request \"{}\"", &id);
@@ -72,6 +66,7 @@ async fn main() {
 		}
 	});
 
+	let ratelimiter = get_ratelimiter(&config).await;
 	let client = Arc::new(Client {
 		http: reqwest::Client::new(),
 		ratelimiter: Arc::new(ratelimiter),
@@ -80,6 +75,12 @@ async fn main() {
 		api_version: config.discord.api_version,
 		timeout: config.timeout.map(|d| d.into()),
 	});
+
+	#[cfg(feature = "metrics")]
+	if let Some(config) = config.metrics {
+		info!("Launching metrics server");
+		spawn(start_server(config.path, config.addr));
+	}
 
 	info!("Beginning normal message consumption");
 	while let Some(message) = consumer.recv().await {
@@ -119,4 +120,31 @@ async fn main() {
 			}
 		});
 	}
+}
+
+#[cfg(feature = "redis-ratelimiter")]
+async fn get_ratelimiter(config: &Config) -> Box<dyn Ratelimiter + Send + Sync + 'static> {
+	match &config.redis {
+		Some(config) => {
+			let redis_client =
+				redis::Client::open(config.url.to_string()).expect("Unable to connect to Redis");
+
+			let ratelimiter = loop {
+				match RedisRatelimiter::new(&redis_client).await {
+					Ok(r) => break r,
+					Err(e) => error!("Error setting up Redis ratelimiter; retrying in 5s: {}", e),
+				}
+
+				sleep(Duration::from_secs(5)).await;
+			};
+
+			Box::new(ratelimiter)
+		}
+		None => Box::new(LocalRatelimiter::default()),
+	}
+}
+
+#[cfg(not(feature = "redis-ratelimiter"))]
+async fn get_ratelimiter(_config: &Config) -> impl Ratelimiter {
+	LocalRatelimiter::default()
 }

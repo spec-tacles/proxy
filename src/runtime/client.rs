@@ -1,33 +1,36 @@
+#[cfg(feature = "metrics")]
+use crate::metrics::{RATELIMIT_LATENCY, REQUESTS_TOTAL, REQUEST_LATENCY, RESPONSES_TOTAL};
 use crate::{
 	models::{RequestResponse, SerializableHttpRequest, SerializableHttpResponse},
-	ratelimiter::{
-		reqwest::{self, Method, Request},
-		Ratelimiter,
-	},
+	ratelimiter::Ratelimiter,
 	route::make_route,
-	stats::{RATELIMIT_LATENCY, REQUESTS_TOTAL, REQUEST_LATENCY, RESPONSES_TOTAL},
 };
 use anyhow::{Context, Result};
+use http::Method;
+use reqwest::Request;
 use rmp_serde::Serializer;
 use rustacles_brokers::amqp::Message;
 use serde::Serialize;
-use std::{convert::TryInto, str::FromStr, sync::Arc};
-use tokio::time::{self, Duration, Instant};
+use std::{convert::TryInto, ops::Deref, str::FromStr};
+#[cfg(feature = "metrics")]
+use tokio::time::Instant;
+use tokio::time::{self, Duration};
 use uriparse::{Path, Query, Scheme, URIBuilder};
 
 #[derive(Debug, Clone)]
 pub struct Client<'a, R> {
 	pub http: reqwest::Client,
-	pub ratelimiter: Arc<R>,
+	pub ratelimiter: R,
 	pub api_scheme: Scheme<'a>,
 	pub api_version: u8,
 	pub api_base: &'a str,
 	pub timeout: Option<Duration>,
 }
 
-impl<'a, R> Client<'a, R>
+impl<'a, R, T> Client<'a, T>
 where
 	R: Ratelimiter + Sync + Send + 'static,
+	T: Deref<Target = R>,
 {
 	fn create_request(&self, data: &SerializableHttpRequest) -> Result<Request> {
 		let path_str = format!(
@@ -84,7 +87,7 @@ where
 	async fn claim(&self, data: &SerializableHttpRequest) -> Result<(Request, String)> {
 		let req = self.create_request(data)?;
 		let bucket = make_route(req.url().path())?;
-		self.ratelimiter.clone().claim(bucket.clone()).await?;
+		self.ratelimiter.claim(bucket.clone()).await?;
 
 		Ok((req, bucket))
 	}
@@ -94,12 +97,16 @@ where
 		message: &Message,
 		data: &SerializableHttpRequest,
 	) -> Result<SerializableHttpResponse> {
+		#[cfg(feature = "metrics")]
 		let start = Instant::now();
 		let claim = self.claim(data).await;
+		#[cfg(feature = "metrics")]
 		let latency = Instant::now().duration_since(start);
 
+		#[cfg(feature = "metrics")]
 		let labels: [&str; 2] = [&data.method, &data.path];
 
+		#[cfg(feature = "metrics")]
 		RATELIMIT_LATENCY
 			.get_metric_with_label_values(&labels)?
 			.observe(latency.as_secs_f64());
@@ -107,22 +114,28 @@ where
 		message.ack().await?;
 		let (req, bucket) = claim?;
 
+		#[cfg(feature = "metrics")]
 		REQUESTS_TOTAL.get_metric_with_label_values(&labels)?.inc();
 
+		#[cfg(feature = "metrics")]
 		let start = Instant::now();
 		let res = self.http.execute(req).await;
+		#[cfg(feature = "metrics")]
 		let latency = Instant::now().duration_since(start);
 
 		self.ratelimiter
-			.clone()
 			.release(bucket, res.as_ref().into())
 			.await?;
 		let res = res?;
 
+		#[cfg(feature = "metrics")]
 		let status = res.status();
+		#[cfg(feature = "metrics")]
 		let labels = [&data.method, &data.path, status.as_str()];
 
+		#[cfg(feature = "metrics")]
 		RESPONSES_TOTAL.get_metric_with_label_values(&labels)?.inc();
+		#[cfg(feature = "metrics")]
 		REQUEST_LATENCY
 			.get_metric_with_label_values(&labels)?
 			.observe(latency.as_secs_f64());

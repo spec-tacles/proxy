@@ -1,7 +1,8 @@
-#![feature(iterator_fold_self, maybe_uninit_ref)]
+#![feature(iterator_fold_self)]
 
+#[cfg(feature = "metrics")]
+pub mod metrics;
 pub mod models;
 pub mod ratelimiter;
 pub mod route;
 pub mod runtime;
-pub mod stats;

@@ -2,7 +2,7 @@ use anyhow::Result;
 use mockito::mock;
 use rmp_serde::{from_slice, to_vec};
 use rustacles_brokers::amqp::AmqpBroker;
-use spectacles_proxy::ratelimiter::{local::LocalRatelimiter, reqwest};
+use spectacles_proxy::ratelimiter::local::LocalRatelimiter;
 use spectacles_proxy::{
 	models::{
 		RequestResponse, RequestResponseBody, ResponseStatus, SerializableHttpRequest,

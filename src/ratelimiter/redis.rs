@@ -2,8 +2,11 @@ use super::{FutureResult, RatelimitInfo, Ratelimiter};
 use anyhow::Result;
 use lazy_static::lazy_static;
 use log::debug;
-use redis::{Script, aio::{MultiplexedConnection, PubSub}};
-use std::{sync::Arc, time::Duration};
+use redis::{
+	aio::{MultiplexedConnection, PubSub},
+	Script,
+};
+use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio_stream::StreamExt;
 
@@ -26,7 +29,10 @@ impl RedisRatelimiter {
 		Self::new_from_connections(main, pubsub).await
 	}
 
-	pub async fn new_from_connections(main: MultiplexedConnection, mut pubsub: PubSub) -> Result<Self> {
+	pub async fn new_from_connections(
+		main: MultiplexedConnection,
+		mut pubsub: PubSub,
+	) -> Result<Self> {
 		pubsub.subscribe(NOTIFY_KEY).await?;
 		let (sender, _) = broadcast::channel(32);
 
@@ -45,13 +51,15 @@ impl RedisRatelimiter {
 }
 
 impl Ratelimiter for RedisRatelimiter {
-	fn claim(self: Arc<Self>, bucket: String) -> FutureResult<()> {
+	fn claim(&self, bucket: String) -> FutureResult<()> {
+		let mut conn = self.redis.clone();
+		let mut rcv = self.ready_publisher.subscribe();
 		Box::pin(async move {
 			'outer: loop {
 				let expiration: isize = CLAIM_SCRIPT
 					.key(&bucket)
 					.key(bucket.to_string() + "_size")
-					.invoke_async(&mut self.redis.clone())
+					.invoke_async(&mut conn)
 					.await?;
 
 				debug!("Received expiration of {}ms for \"{}\"", expiration, bucket);
@@ -65,7 +73,6 @@ impl Ratelimiter for RedisRatelimiter {
 					break;
 				}
 
-				let mut rcv = self.ready_publisher.subscribe();
 				loop {
 					let opened_bucket = rcv.recv().await?;
 					if opened_bucket == bucket {
@@ -78,7 +85,8 @@ impl Ratelimiter for RedisRatelimiter {
 		})
 	}
 
-	fn release(self: Arc<Self>, bucket: String, info: RatelimitInfo) -> FutureResult<()> {
+	fn release(&self, bucket: String, info: RatelimitInfo) -> FutureResult<()> {
+		let mut conn = self.redis.clone();
 		Box::pin(async move {
 			RELEASE_SCRIPT
 				.key(&bucket)
@@ -86,7 +94,7 @@ impl Ratelimiter for RedisRatelimiter {
 				.key(NOTIFY_KEY)
 				.arg(info.limit.unwrap_or(0))
 				.arg(info.resets_in.unwrap_or(0))
-				.invoke_async(&mut self.redis.clone())
+				.invoke_async(&mut conn)
 				.await?;
 
 			Ok(())

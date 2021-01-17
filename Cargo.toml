@@ -9,7 +9,6 @@ edition = "2018"
 [[bin]]
 name = "proxy"
 path = "src/main.rs"
-required-features = ["redis-ratelimiter"]
 
 [dependencies]
 anyhow = "1.0"
@@ -20,7 +19,7 @@ humantime = "2.0"
 humantime-serde = "1.0"
 lazy_static = "1.4"
 log = "0.4"
-prometheus = "0.11"
+prometheus = { version = "0.11", optional = true }
 rmp-serde = "0.14"
 rustacles-brokers = { git = "https://github.com/spec-tacles/rustacles" }
 serde = "1.0"
@@ -43,9 +42,14 @@ version = "0.11"
 features = ["rustls-tls"]
 default-features = false
 
+[dependencies.warp]
+git = "https://github.com/seanmonstar/warp.git"
+optional = true
+
 [features]
 default = []
 redis-ratelimiter = ["redis"]
+metrics = ["prometheus", "warp"]
 
 [dev-dependencies]
 mockito = "0.27"

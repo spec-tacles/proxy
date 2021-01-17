@@ -1,7 +1,6 @@
 use anyhow::Result;
-pub use reqwest;
 use reqwest::{header::HeaderMap, Response};
-use std::{future::Future, pin::Pin, str::FromStr, sync::Arc};
+use std::{future::Future, ops::Deref, pin::Pin, str::FromStr};
 
 pub mod local;
 #[cfg(feature = "redis-ratelimiter")]
@@ -10,8 +9,21 @@ pub mod redis;
 pub type FutureResult<T> = Pin<Box<dyn Future<Output = Result<T>> + Send>>;
 
 pub trait Ratelimiter {
-	fn claim(self: Arc<Self>, bucket: String) -> FutureResult<()>;
-	fn release(self: Arc<Self>, bucket: String, info: RatelimitInfo) -> FutureResult<()>;
+	fn claim(&self, bucket: String) -> FutureResult<()>;
+	fn release(&self, bucket: String, info: RatelimitInfo) -> FutureResult<()>;
+}
+
+impl<T> Ratelimiter for T
+where
+	T: Deref<Target = dyn Ratelimiter + Send + Sync + 'static>,
+{
+	fn claim(&self, bucket: String) -> FutureResult<()> {
+		Ratelimiter::claim(self.deref(), bucket)
+	}
+
+	fn release(&self, bucket: String, info: RatelimitInfo) -> FutureResult<()> {
+		Ratelimiter::release(self.deref(), bucket, info)
+	}
 }
 
 #[derive(Debug, Default, Eq, PartialEq)]
@@ -41,6 +53,7 @@ impl<'a, E> From<std::result::Result<&'a Response, E>> for RatelimitInfo {
 		}
 	}
 }
+
 #[cfg(test)]
 mod test {
 	use super::{RatelimitInfo, Ratelimiter};
