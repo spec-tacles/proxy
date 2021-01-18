@@ -53,7 +53,7 @@ async fn handles_request() -> Result<()> {
 	spawn(async move {
 		while let Some(message) = consumer.recv().await {
 			client
-				.handle_message(&message)
+				.handle_message(message)
 				.await
 				.expect("Unable to handle message");
 		}

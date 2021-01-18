@@ -1,29 +1,11 @@
-use anyhow::Result;
-use std::{
-	convert::TryFrom,
-	fmt::{self, Display, Formatter},
-};
+use anyhow::{anyhow, Result};
+use std::convert::TryFrom;
 use uriparse::path::{Path, Segment};
-
-#[derive(Debug)]
-pub enum RouteError {
-	RelativePath,
-}
-
-impl Display for RouteError {
-	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-		match self {
-			Self::RelativePath => f.write_str("path is not absolute"),
-		}
-	}
-}
-
-impl std::error::Error for RouteError {}
 
 pub fn make_route(path: &str) -> Result<String> {
 	let mut path = Path::try_from(path)?;
 	if !path.is_absolute() {
-		return Err(RouteError::RelativePath.into());
+		return Err(anyhow!("path is not absolute"));
 	}
 
 	let segments = path.segments_mut();

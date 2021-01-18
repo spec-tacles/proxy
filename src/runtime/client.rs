@@ -157,7 +157,7 @@ where
 		})
 	}
 
-	pub async fn handle_message(&self, message: &Message) -> Result<()> {
+	pub async fn handle_message(&self, message: Message) -> Result<()> {
 		let data = match rmp_serde::from_slice::<SerializableHttpRequest>(&message.data) {
 			Ok(data) => data,
 			Err(e) => {

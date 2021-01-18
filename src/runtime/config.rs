@@ -3,6 +3,8 @@ use humantime::parse_duration;
 use serde::Deserialize;
 use std::{env, net::SocketAddr, time::Duration};
 
+use super::Client;
+
 #[derive(Debug, Default, Deserialize)]
 pub struct Config {
 	pub redis: Option<RedisConfig>,
@@ -40,6 +42,12 @@ impl Config {
 		}
 
 		self
+	}
+}
+
+impl<'a, R> From<Config> for Client<'a, R> {
+	fn from(_: Config) -> Self {
+		todo!()
 	}
 }
 

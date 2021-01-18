@@ -1,17 +1,17 @@
-use log::{error, info, trace, warn};
-use rustacles_brokers::amqp::AmqpBroker;
+#![feature(async_closure)]
+
+use log::{error, info};
 #[cfg(feature = "redis-ratelimiter")]
-use spectacles_proxy::{ratelimiter::redis::RedisRatelimiter};
+use spectacles_proxy::ratelimiter::redis::RedisRatelimiter;
 #[cfg(feature = "metrics")]
 use spectacles_proxy::runtime::metrics::start_server;
 use spectacles_proxy::{
 	ratelimiter::{local::LocalRatelimiter, Ratelimiter},
-	runtime::{Client, Config},
+	runtime::{broker::Broker, Client, Config},
 };
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 use tokio::{
-	select, spawn,
-	sync::{Mutex, Notify},
+	spawn,
 	time::{sleep, Duration},
 };
 use uriparse::Scheme;
@@ -24,47 +24,7 @@ async fn main() {
 		.unwrap_or_default()
 		.with_env();
 
-	let broker = Arc::new(loop {
-		match AmqpBroker::new(
-			&config.amqp.url,
-			config.amqp.group.clone(),
-			config.amqp.subgroup.clone(),
-		)
-		.await
-		{
-			Ok(b) => break b,
-			Err(e) => error!("Error connecting to AMQP; retrying in 5s: {}", e),
-		}
-
-		sleep(Duration::from_secs(5)).await;
-	});
-
-	let mut consumer = broker
-		.consume(&config.amqp.event)
-		.await
-		.expect("Unable to setup message consumption");
-
-	let mut cancellation_consumer = broker
-		.consume(&config.amqp.cancellation_event)
-		.await
-		.expect("Unable to setup cancellation message consumption");
-
-	let cancellations: Arc<Mutex<HashMap<String, Arc<Notify>>>> = Default::default();
-	let consume_cancellations = Arc::clone(&cancellations);
-	spawn(async move {
-		while let Some(message) = cancellation_consumer.recv().await {
-			if let Ok(id) = String::from_utf8(message.data) {
-				trace!("Received cancellation for request \"{}\"", &id);
-				consume_cancellations
-					.lock()
-					.await
-					.remove(&id)
-					.map(|n| n.notify_waiters());
-			} else {
-				warn!("Received invalid UTF-8 cancellation request data");
-			}
-		}
-	});
+	let broker = Broker::from_config(&config).await;
 
 	let ratelimiter = get_ratelimiter(&config).await;
 	let client = Arc::new(Client {
@@ -83,43 +43,12 @@ async fn main() {
 	}
 
 	info!("Beginning normal message consumption");
-	while let Some(message) = consumer.recv().await {
-		let client = Arc::clone(&client);
-		let cancellations = Arc::clone(&cancellations);
-
-		trace!("Received message");
-		tokio::spawn(async move {
-			let cancellation = Arc::new(Notify::new());
-			let maybe_correlation_id = message
-				.properties
-				.correlation_id()
-				.as_ref()
-				.map(|id| id.to_string());
-
-			if let Some(correlation_id) = &maybe_correlation_id {
-				cancellations
-					.lock()
-					.await
-					.insert(correlation_id.clone(), Arc::clone(&cancellation));
-			}
-
-			select! {
-				_ = cancellation.notified() => {
-					trace!("Request cancelled");
-					// cancellation notifier is removed during notification, so we can exit here to avoid an extra lock
-					return;
-				},
-				result = client.handle_message(&message) => match result {
-					Ok(_) => trace!("Request completed"),
-					Err(e) => warn!("Request failed: {}", e),
-				},
-			};
-
-			if let Some(correlation_id) = &maybe_correlation_id {
-				cancellations.lock().await.remove(correlation_id);
-			}
-		});
-	}
+	broker
+		.consume_messages(move |msg| {
+			let client = Arc::clone(&client);
+			async move { client.handle_message(msg).await }
+		})
+		.await;
 }
 
 #[cfg(feature = "redis-ratelimiter")]
