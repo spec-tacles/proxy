@@ -1,46 +1,20 @@
 use anyhow::Result;
-use humantime::Duration;
-use serde::{
-	de::{Deserializer, Visitor},
-	Deserialize,
-};
-use std::{env, fmt, str::FromStr};
+use humantime::parse_duration;
+use serde::Deserialize;
+use std::{env, net::SocketAddr, time::Duration};
+
+use super::Client;
 
 #[derive(Debug, Default, Deserialize)]
 pub struct Config {
-	#[serde(default)]
-	pub redis: RedisConfig,
+	pub redis: Option<RedisConfig>,
 	#[serde(default)]
 	pub amqp: AmqpConfig,
 	#[serde(default)]
 	pub discord: DiscordConfig,
-	#[serde(default, deserialize_with = "deserialize_duration")]
+	#[serde(default, with = "humantime_serde")]
 	pub timeout: Option<Duration>,
-}
-
-fn deserialize_duration<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
-where
-	D: Deserializer<'de>,
-{
-	struct DurationVisitor;
-
-	impl<'de> Visitor<'de> for DurationVisitor {
-		type Value = Option<Duration>;
-
-		fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-			write!(f, "string")
-		}
-
-		fn visit_str<E>(self, value: &str) -> Result<Option<Duration>, E> {
-			Ok(Some(Duration::from_str(value).unwrap()))
-		}
-
-		fn visit_none<E>(self) -> Result<Option<Duration>, E> {
-			Ok(None)
-		}
-	}
-
-	deserializer.deserialize_any(DurationVisitor {})
+	pub metrics: Option<MetricsConfig>,
 }
 
 impl Config {
@@ -51,19 +25,29 @@ impl Config {
 	pub fn with_env(mut self) -> Self {
 		for (k, v) in env::vars() {
 			match k.as_str() {
-				"REDIS_URL" => self.redis.url = v,
+				"REDIS_URL" => {
+					self.redis.as_mut().map(|conf| conf.url = v);
+				}
 				"AMQP_URL" => self.amqp.url = v,
 				"AMQP_GROUP" => self.amqp.group = v,
 				"AMQP_SUBGROUP" => self.amqp.subgroup = Some(v),
 				"AMQP_EVENT" => self.amqp.event = v,
 				"AMQP_CANCELLATION_EVENT" => self.amqp.cancellation_event = v,
-				"TIMEOUT" => self.timeout = v.parse().ok(),
-				"DISCORD_API_VERSION" => self.discord.api_version = v.parse().expect("valid DISCORD_API_VERSION (u8)"),
+				"TIMEOUT" => self.timeout = parse_duration(&v).ok(),
+				"DISCORD_API_VERSION" => {
+					self.discord.api_version = v.parse().expect("valid DISCORD_API_VERSION (u8)")
+				}
 				_ => {}
 			}
 		}
 
 		self
+	}
+}
+
+impl<'a, R> From<Config> for Client<'a, R> {
+	fn from(_: Config) -> Self {
+		todo!()
 	}
 }
 
@@ -147,6 +131,33 @@ impl Default for DiscordConfig {
 	fn default() -> Self {
 		Self {
 			api_version: Self::default_api_version(),
+		}
+	}
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MetricsConfig {
+	#[serde(default = "MetricsConfig::default_addr")]
+	pub addr: SocketAddr,
+	#[serde(default = "MetricsConfig::default_path")]
+	pub path: String,
+}
+
+impl MetricsConfig {
+	fn default_addr() -> SocketAddr {
+		([0, 0, 0, 0], 3000).into()
+	}
+
+	fn default_path() -> String {
+		"metrics".to_owned()
+	}
+}
+
+impl Default for MetricsConfig {
+	fn default() -> Self {
+		Self {
+			addr: Self::default_addr(),
+			path: Self::default_path(),
 		}
 	}
 }

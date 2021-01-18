@@ -1,16 +1,16 @@
 use anyhow::Result;
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use serde_repr::*;
 use std::collections::HashMap;
-use tokio::time::{Duration, Elapsed};
+use tokio::time::{error::Elapsed, Duration};
 
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct SerializableHttpRequest {
 	pub method: String,
 	pub path: String,
 	pub query: Option<HashMap<String, String>>,
-	#[serde(with = "serde_bytes")]
-	pub body: Option<Vec<u8>>,
+	pub body: Option<Bytes>,
 	#[serde(default)]
 	pub headers: HashMap<String, String>,
 	pub timeout: Option<Duration>,
@@ -21,8 +21,7 @@ pub struct SerializableHttpResponse {
 	pub status: u16,
 	pub headers: HashMap<String, String>,
 	pub url: String,
-	#[serde(with = "serde_bytes")]
-	pub body: Vec<u8>,
+	pub body: Bytes,
 }
 
 #[repr(u8)]

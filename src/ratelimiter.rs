@@ -1,7 +1,6 @@
 use anyhow::Result;
-pub use reqwest;
 use reqwest::{header::HeaderMap, Response};
-use std::{future::Future, pin::Pin, str::FromStr, sync::Arc};
+use std::{future::Future, ops::Deref, pin::Pin, str::FromStr};
 
 pub mod local;
 #[cfg(feature = "redis-ratelimiter")]
@@ -10,8 +9,21 @@ pub mod redis;
 pub type FutureResult<T> = Pin<Box<dyn Future<Output = Result<T>> + Send>>;
 
 pub trait Ratelimiter {
-	fn claim(self: Arc<Self>, bucket: String) -> FutureResult<()>;
-	fn release(self: Arc<Self>, bucket: String, info: RatelimitInfo) -> FutureResult<()>;
+	fn claim(&self, bucket: String) -> FutureResult<()>;
+	fn release(&self, bucket: String, info: RatelimitInfo) -> FutureResult<()>;
+}
+
+impl<T> Ratelimiter for T
+where
+	T: Deref<Target = dyn Ratelimiter + Send + Sync + 'static>,
+{
+	fn claim(&self, bucket: String) -> FutureResult<()> {
+		Ratelimiter::claim(self.deref(), bucket)
+	}
+
+	fn release(&self, bucket: String, info: RatelimitInfo) -> FutureResult<()> {
+		Ratelimiter::release(self.deref(), bucket, info)
+	}
 }
 
 #[derive(Debug, Default, Eq, PartialEq)]
@@ -54,7 +66,7 @@ mod test {
 		time::{Duration, SystemTime},
 	};
 	use tokio::{
-		time::{delay_for, timeout},
+		time::{sleep, timeout},
 		try_join,
 	};
 
@@ -145,7 +157,7 @@ mod test {
 			claim_timeout(client.clone(), "foo", 10000, 10050),
 			async {
 				for _ in 0..2 {
-					tokio::time::delay_for(Duration::from_secs(5)).await;
+					sleep(Duration::from_secs(5)).await;
 					client
 						.clone()
 						.release(
@@ -192,7 +204,7 @@ mod test {
 				}
 			},
 			async {
-				delay_for(Duration::from_secs(5)).await;
+				sleep(Duration::from_secs(5)).await;
 				client
 					.clone()
 					.release(
@@ -257,7 +269,7 @@ mod test {
 			claim_timeout(client.clone(), "foo", 0, 50).await?;
 		}
 
-		delay_for(Duration::from_secs(1)).await;
+		sleep(Duration::from_secs(1)).await;
 		client
 			.clone()
 			.release(

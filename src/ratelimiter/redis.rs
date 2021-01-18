@@ -1,32 +1,37 @@
 use super::{FutureResult, RatelimitInfo, Ratelimiter};
 use anyhow::Result;
-pub use redis;
-use redis::Script;
-use std::{sync::Arc, time::Duration};
-use tokio::{
-	stream::StreamExt,
-	sync::{broadcast, Mutex},
+use lazy_static::lazy_static;
+use log::debug;
+use redis::{
+	aio::{MultiplexedConnection, PubSub},
+	Script,
 };
+use std::time::Duration;
+use tokio::sync::broadcast;
+use tokio_stream::StreamExt;
 
 static NOTIFY_KEY: &'static str = "rest_ready";
 
+lazy_static! {
+	static ref CLAIM_SCRIPT: Script = Script::new(include_str!("./scripts/claim.lua"));
+	static ref RELEASE_SCRIPT: Script = Script::new(include_str!("./scripts/release.lua"));
+}
+
 pub struct RedisRatelimiter {
-	redis: Mutex<redis::aio::Connection>,
-	claim_script: Script,
-	release_script: Script,
+	redis: MultiplexedConnection,
 	ready_publisher: broadcast::Sender<String>,
 }
 
 impl RedisRatelimiter {
 	pub async fn new(redis: &redis::Client) -> Result<Self> {
 		let pubsub = redis.get_async_connection().await?.into_pubsub();
-		let main = redis.get_async_connection().await?;
+		let main = redis.get_multiplexed_tokio_connection().await?;
 		Self::new_from_connections(main, pubsub).await
 	}
 
 	pub async fn new_from_connections(
-		main: redis::aio::Connection,
-		mut pubsub: redis::aio::PubSub,
+		main: MultiplexedConnection,
+		mut pubsub: PubSub,
 	) -> Result<Self> {
 		pubsub.subscribe(NOTIFY_KEY).await?;
 		let (sender, _) = broadcast::channel(32);
@@ -39,29 +44,28 @@ impl RedisRatelimiter {
 		});
 
 		Ok(Self {
-			redis: Mutex::new(main),
-			claim_script: Script::new(include_str!("./scripts/claim.lua")),
-			release_script: Script::new(include_str!("./scripts/release.lua")),
+			redis: main,
 			ready_publisher: sender,
 		})
 	}
 }
 
 impl Ratelimiter for RedisRatelimiter {
-	fn claim(self: Arc<Self>, bucket: String) -> FutureResult<()> {
+	fn claim(&self, bucket: String) -> FutureResult<()> {
+		let mut conn = self.redis.clone();
+		let mut rcv = self.ready_publisher.subscribe();
 		Box::pin(async move {
 			'outer: loop {
-				let expiration: isize = self
-					.claim_script
+				let expiration: isize = CLAIM_SCRIPT
 					.key(&bucket)
 					.key(bucket.to_string() + "_size")
-					.invoke_async(&mut *self.redis.lock().await)
+					.invoke_async(&mut conn)
 					.await?;
 
 				debug!("Received expiration of {}ms for \"{}\"", expiration, bucket);
 
 				if expiration.is_positive() {
-					tokio::time::delay_for(Duration::from_millis(expiration as u64)).await;
+					tokio::time::sleep(Duration::from_millis(expiration as u64)).await;
 					continue;
 				}
 
@@ -69,7 +73,6 @@ impl Ratelimiter for RedisRatelimiter {
 					break;
 				}
 
-				let mut rcv = self.ready_publisher.subscribe();
 				loop {
 					let opened_bucket = rcv.recv().await?;
 					if opened_bucket == bucket {
@@ -82,15 +85,16 @@ impl Ratelimiter for RedisRatelimiter {
 		})
 	}
 
-	fn release(self: Arc<Self>, bucket: String, info: RatelimitInfo) -> FutureResult<()> {
+	fn release(&self, bucket: String, info: RatelimitInfo) -> FutureResult<()> {
+		let mut conn = self.redis.clone();
 		Box::pin(async move {
-			self.release_script
+			RELEASE_SCRIPT
 				.key(&bucket)
 				.key(bucket.to_string() + "_size")
 				.key(NOTIFY_KEY)
 				.arg(info.limit.unwrap_or(0))
 				.arg(info.resets_in.unwrap_or(0))
-				.invoke_async(&mut *self.redis.lock().await)
+				.invoke_async(&mut conn)
 				.await?;
 
 			Ok(())
@@ -115,7 +119,7 @@ mod test {
 		dbg!(db);
 
 		let client = Client::open("redis://localhost:6379")?;
-		let mut conn = client.get_async_connection().await?;
+		let mut conn = client.get_multiplexed_tokio_connection().await?;
 		let _: redis::Value = redis::cmd("SELECT").arg(db).query_async(&mut conn).await?;
 		let _: redis::Value = redis::cmd("FLUSHDB").query_async(&mut conn).await?;
 
