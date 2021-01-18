@@ -1,34 +1,38 @@
-use super::*;
+#[cfg(feature = "metrics")]
+use crate::metrics::{RATELIMIT_LATENCY, REQUESTS_TOTAL, REQUEST_LATENCY, RESPONSES_TOTAL};
+use crate::{
+	models::{RequestResponse, SerializableHttpRequest, SerializableHttpResponse},
+	ratelimiter::Ratelimiter,
+	route::make_route,
+};
 use anyhow::{Context, Result};
+use http::Method;
+use reqwest::Request;
 use rmp_serde::Serializer;
 use rustacles_brokers::amqp::Message;
 use serde::Serialize;
-use spectacles_proxy::{
-	ratelimiter::{
-		reqwest::{self, Method, Request},
-		Ratelimiter,
-	},
-	route::make_route,
-};
-use std::{convert::TryInto, str::FromStr, sync::Arc};
+use std::{convert::TryInto, ops::Deref, str::FromStr};
+#[cfg(feature = "metrics")]
+use tokio::time::Instant;
 use tokio::time::{self, Duration};
 use uriparse::{Path, Query, Scheme, URIBuilder};
 
 #[derive(Debug, Clone)]
 pub struct Client<'a, R> {
 	pub http: reqwest::Client,
-	pub ratelimiter: Arc<R>,
+	pub ratelimiter: R,
 	pub api_scheme: Scheme<'a>,
 	pub api_version: u8,
 	pub api_base: &'a str,
 	pub timeout: Option<Duration>,
 }
 
-impl<'a, R> Client<'a, R>
+impl<'a, R, T> Client<'a, T>
 where
 	R: Ratelimiter + Sync + Send + 'static,
+	T: Deref<Target = R>,
 {
-	fn create_request(&self, data: SerializableHttpRequest) -> Result<Request> {
+	fn create_request(&self, data: &SerializableHttpRequest) -> Result<Request> {
 		let path_str = format!(
 			"/api/v{}/{}",
 			self.api_version,
@@ -71,7 +75,7 @@ where
 			.request(Method::from_str(&data.method)?, &url.to_string())
 			.headers((&data.headers).try_into()?);
 
-		if let Some(body) = data.body {
+		if let Some(body) = data.body.clone() {
 			req_builder = req_builder.body(body);
 		}
 
@@ -80,10 +84,10 @@ where
 			.context("Unable to build HTTP request")?)
 	}
 
-	async fn claim(&self, data: SerializableHttpRequest) -> Result<(Request, String)> {
+	async fn claim(&self, data: &SerializableHttpRequest) -> Result<(Request, String)> {
 		let req = self.create_request(data)?;
 		let bucket = make_route(req.url().path())?;
-		self.ratelimiter.clone().claim(bucket.clone()).await?;
+		self.ratelimiter.claim(bucket.clone()).await?;
 
 		Ok((req, bucket))
 	}
@@ -91,18 +95,50 @@ where
 	async fn do_request(
 		&self,
 		message: &Message,
-		data: SerializableHttpRequest,
+		data: &SerializableHttpRequest,
 	) -> Result<SerializableHttpResponse> {
+		#[cfg(feature = "metrics")]
+		let start = Instant::now();
 		let claim = self.claim(data).await;
+		#[cfg(feature = "metrics")]
+		let latency = Instant::now().duration_since(start);
+
+		#[cfg(feature = "metrics")]
+		let labels: [&str; 2] = [&data.method, &data.path];
+
+		#[cfg(feature = "metrics")]
+		RATELIMIT_LATENCY
+			.get_metric_with_label_values(&labels)?
+			.observe(latency.as_secs_f64());
+
 		message.ack().await?;
 		let (req, bucket) = claim?;
 
+		#[cfg(feature = "metrics")]
+		REQUESTS_TOTAL.get_metric_with_label_values(&labels)?.inc();
+
+		#[cfg(feature = "metrics")]
+		let start = Instant::now();
 		let res = self.http.execute(req).await;
+		#[cfg(feature = "metrics")]
+		let latency = Instant::now().duration_since(start);
+
 		self.ratelimiter
-			.clone()
 			.release(bucket, res.as_ref().into())
 			.await?;
 		let res = res?;
+
+		#[cfg(feature = "metrics")]
+		let status = res.status();
+		#[cfg(feature = "metrics")]
+		let labels = [&data.method, &data.path, status.as_str()];
+
+		#[cfg(feature = "metrics")]
+		RESPONSES_TOTAL.get_metric_with_label_values(&labels)?.inc();
+		#[cfg(feature = "metrics")]
+		REQUEST_LATENCY
+			.get_metric_with_label_values(&labels)?
+			.observe(latency.as_secs_f64());
 
 		Ok(SerializableHttpResponse {
 			status: res.status().as_u16(),
@@ -117,11 +153,11 @@ where
 				})
 				.collect(),
 			url: res.url().to_string(),
-			body: res.bytes().await?.to_vec(),
+			body: res.bytes().await?,
 		})
 	}
 
-	pub async fn handle_message(&self, message: &Message) -> Result<()> {
+	pub async fn handle_message(&self, message: Message) -> Result<()> {
 		let data = match rmp_serde::from_slice::<SerializableHttpRequest>(&message.data) {
 			Ok(data) => data,
 			Err(e) => {
@@ -130,7 +166,7 @@ where
 			}
 		};
 		let timeout = data.timeout;
-		let req = self.do_request(&message, data);
+		let req = self.do_request(&message, &data);
 
 		let body: RequestResponse<SerializableHttpResponse> =
 			if let Some(min_timeout) = self.timeout.min(timeout) {

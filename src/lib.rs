@@ -1,14 +1,8 @@
-#[cfg(feature = "redis-ratelimiter")]
-#[macro_use]
-extern crate log;
-#[macro_use]
-extern crate lazy_static;
+#![feature(iterator_fold_self)]
 
-use std::{future::Future, pin::Pin};
-
-pub type DynFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
-
-pub mod cache;
+#[cfg(feature = "metrics")]
+pub mod metrics;
 pub mod models;
 pub mod ratelimiter;
 pub mod route;
+pub mod runtime;
