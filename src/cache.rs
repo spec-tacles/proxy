@@ -1,5 +1,5 @@
-use crate::DynFuture;
 use anyhow::Result;
+use async_trait::async_trait;
 use rustacles_model::{
 	channel::Channel, guild::Guild, message::Message, presence::Presence, voice::VoiceState,
 	Snowflake,
@@ -7,13 +7,11 @@ use rustacles_model::{
 
 pub mod redis;
 
-pub type FutureResultOption<T> = DynFuture<Result<Option<T>>>;
-pub type FutureEmptyResult = DynFuture<Result<()>>;
-
+#[async_trait]
 pub trait Cache<T> {
-	fn get(&self, id: Snowflake) -> FutureResultOption<T>;
-	fn save(&self, item: T) -> FutureEmptyResult;
-	fn delete(&self, id: Snowflake) -> FutureEmptyResult;
+	async fn get(&self, id: Snowflake) -> Result<Option<T>>;
+	async fn save(&self, item: T) -> Result<()>;
+	async fn delete(&self, id: Snowflake) -> Result<()>;
 }
 
 pub trait DiscordCache:

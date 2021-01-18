@@ -1,5 +1,6 @@
-use super::{FutureResult, RatelimitInfo, Ratelimiter};
+use super::{RatelimitInfo, Ratelimiter};
 use anyhow::Result;
+use async_trait::async_trait;
 use lazy_static::lazy_static;
 use log::debug;
 use redis::{
@@ -50,55 +51,52 @@ impl RedisRatelimiter {
 	}
 }
 
+#[async_trait]
 impl Ratelimiter for RedisRatelimiter {
-	fn claim(&self, bucket: String) -> FutureResult<()> {
+	async fn claim(&self, bucket: String) -> Result<()> {
 		let mut conn = self.redis.clone();
 		let mut rcv = self.ready_publisher.subscribe();
-		Box::pin(async move {
-			'outer: loop {
-				let expiration: isize = CLAIM_SCRIPT
-					.key(&bucket)
-					.key(bucket.to_string() + "_size")
-					.invoke_async(&mut conn)
-					.await?;
-
-				debug!("Received expiration of {}ms for \"{}\"", expiration, bucket);
-
-				if expiration.is_positive() {
-					tokio::time::sleep(Duration::from_millis(expiration as u64)).await;
-					continue;
-				}
-
-				if expiration == 0 {
-					break;
-				}
-
-				loop {
-					let opened_bucket = rcv.recv().await?;
-					if opened_bucket == bucket {
-						continue 'outer;
-					}
-				}
-			}
-
-			Ok(())
-		})
-	}
-
-	fn release(&self, bucket: String, info: RatelimitInfo) -> FutureResult<()> {
-		let mut conn = self.redis.clone();
-		Box::pin(async move {
-			RELEASE_SCRIPT
+		'outer: loop {
+			let expiration: isize = CLAIM_SCRIPT
 				.key(&bucket)
 				.key(bucket.to_string() + "_size")
-				.key(NOTIFY_KEY)
-				.arg(info.limit.unwrap_or(0))
-				.arg(info.resets_in.unwrap_or(0))
 				.invoke_async(&mut conn)
 				.await?;
 
-			Ok(())
-		})
+			debug!("Received expiration of {}ms for \"{}\"", expiration, bucket);
+
+			if expiration.is_positive() {
+				tokio::time::sleep(Duration::from_millis(expiration as u64)).await;
+				continue;
+			}
+
+			if expiration == 0 {
+				break;
+			}
+
+			loop {
+				let opened_bucket = rcv.recv().await?;
+				if opened_bucket == bucket {
+					continue 'outer;
+				}
+			}
+		}
+
+		Ok(())
+	}
+
+	async fn release(&self, bucket: String, info: RatelimitInfo) -> Result<()> {
+		let mut conn = self.redis.clone();
+		RELEASE_SCRIPT
+			.key(&bucket)
+			.key(bucket.to_string() + "_size")
+			.key(NOTIFY_KEY)
+			.arg(info.limit.unwrap_or(0))
+			.arg(info.resets_in.unwrap_or(0))
+			.invoke_async(&mut conn)
+			.await?;
+
+		Ok(())
 	}
 }
 
@@ -128,7 +126,7 @@ mod test {
 		let pubsub = pubsub.into_pubsub();
 
 		Ok(Arc::new(
-			RedisRatelimiter::new_from_connections(client, pubsub).await?,
+			RedisRatelimiter::new_from_connections(conn, pubsub).await?,
 		))
 	}
 

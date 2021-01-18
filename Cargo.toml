@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0"
+async-trait = "0.1"
 bytes = { version = "1.0", features = ["serde"] }
 env_logger = "0.7"
 http = "0.2"
@@ -24,6 +25,7 @@ rmp-serde = "0.14"
 rustacles-brokers = { git = "https://github.com/spec-tacles/rustacles" }
 rustacles-model = { git = "https://github.com/spec-tacles/rustacles" }
 serde = "1.0"
+serde_json = "1.0"
 serde_repr = "0.1"
 tokio-stream = "0.1"
 toml = "0.5"
