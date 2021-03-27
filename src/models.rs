@@ -2,7 +2,10 @@ use anyhow::Result;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use serde_repr::*;
-use std::collections::HashMap;
+use std::{
+	collections::HashMap,
+	fmt::{self, Display, Formatter},
+};
 use tokio::time::{error::Elapsed, Duration};
 
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
@@ -16,12 +19,40 @@ pub struct SerializableHttpRequest {
 	pub timeout: Option<Duration>,
 }
 
+impl Display for SerializableHttpRequest {
+	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+		write!(
+			f,
+			"{} {} Query={:?} Headers={:?} BodyLen={:?} Timeout={:?}ms",
+			self.method,
+			self.path,
+			self.query,
+			self.headers,
+			self.body.as_ref().map(|b| b.len()),
+			self.timeout.map(|d| d.as_millis())
+		)
+	}
+}
+
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct SerializableHttpResponse {
 	pub status: u16,
 	pub headers: HashMap<String, String>,
 	pub url: String,
 	pub body: Bytes,
+}
+
+impl Display for SerializableHttpResponse {
+	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+		write!(
+			f,
+			"{} {} Headers={:?} BodyLen={}",
+			self.status,
+			self.url,
+			self.headers,
+			self.body.len()
+		)
+	}
 }
 
 #[repr(u8)]

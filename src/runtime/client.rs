@@ -7,6 +7,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use http::Method;
+use log::{debug, warn};
 use reqwest::Request;
 use rmp_serde::Serializer;
 use rustacles_brokers::amqp::Message;
@@ -52,14 +53,15 @@ where
 			.path(path);
 
 		if let Some(query) = &data.query {
-			let maybe_qs = query
-				.iter()
-				.map(|(k, v)| format!("{}={}", k, v))
-				.fold_first(|mut acc, pair| {
-					acc.push('&');
-					acc.push_str(&pair);
-					acc
-				});
+			let maybe_qs =
+				query
+					.iter()
+					.map(|(k, v)| format!("{}={}", k, v))
+					.reduce(|mut acc, pair| {
+						acc.push('&');
+						acc.push_str(&pair);
+						acc
+					});
 
 			if let Some(qs) = maybe_qs {
 				let mut query: Query = qs.as_str().try_into()?;
@@ -165,16 +167,23 @@ where
 				return Err(e.into());
 			}
 		};
+		debug!("--> REQ({}): {}", message.delivery_tag, data);
+
 		let timeout = data.timeout;
 		let req = self.do_request(&message, &data);
 
-		let body: RequestResponse<SerializableHttpResponse> =
-			if let Some(min_timeout) = self.timeout.min(timeout) {
-				time::timeout(min_timeout, req).await?
-			} else {
-				req.await
-			}
-			.into();
+		let body = if let Some(min_timeout) = self.timeout.min(timeout) {
+			time::timeout(min_timeout, req).await?
+		} else {
+			req.await
+		};
+
+		match &body {
+			Ok(res) => debug!("<-- RES({}): {}", message.delivery_tag, res),
+			Err(e) => warn!("<-- ERR({}): {:?}", message.delivery_tag, e),
+		}
+
+		let body = RequestResponse::<SerializableHttpResponse>::from(body);
 
 		let mut buf = Vec::new();
 		body.serialize(&mut Serializer::new(&mut buf).with_struct_map())

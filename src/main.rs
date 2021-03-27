@@ -1,5 +1,3 @@
-#![feature(async_closure)]
-
 use log::{error, info};
 #[cfg(feature = "redis-ratelimiter")]
 use spectacles_proxy::ratelimiter::redis::RedisRatelimiter;
