@@ -19,9 +19,11 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
     - uses: actions/checkout@v2
-    - run: rustup default nightly
+    - run: rustup update stable
     - name: Build
-      run: cargo build --release --verbose -Z unstable-options --out-dir ./out
+      run: cargo build --release --verbose
+    - name: Prepare output
+      run: find ./target/release -type f -exec cp {} ./out \;
     - name: Compress output
       run: tar -zcvf proxy.tar.gz ./out
     - uses: actions/upload-artifact@v2
