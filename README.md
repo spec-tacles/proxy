@@ -21,14 +21,7 @@ The proxy can be configured with the following options. This file must be called
 timeout = "" # TIMEOUT
 
 [redis]
-url = "redis://localhost:6379" # REDIS_URL
-
-[amqp]
-url = "amqp://localhost:5672/%2f" # AMQP_URL
-group = "rest" # AMQP_GROUP
-# subgroup = "foo" # AMQP_SUBGROUP
-event = "REQUEST" # AMQP_EVENT
-cancellation_event = "CANCEL" # AMQP_CANCELLATION_EVENT
+url = "localhost:6379" # REDIS_URL
 
 [discord]
 api_version = 6 # DISCORD_API_VERSION

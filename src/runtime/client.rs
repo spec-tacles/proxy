@@ -6,32 +6,32 @@ use crate::{
 	route::make_route,
 };
 use anyhow::{Context, Result};
+use futures::{TryStream, TryStreamExt};
 use http::Method;
 use log::{debug, warn};
 use reqwest::Request;
-use rmp_serde::Serializer;
-use rustacles_brokers::amqp::Message;
-use serde::Serialize;
-use std::{convert::TryInto, ops::Deref, str::FromStr};
-#[cfg(feature = "metrics")]
-use tokio::time::Instant;
-use tokio::time::{self, Duration};
+use rustacles_brokers::redis::message::Message;
+use std::{convert::TryInto, fmt::Debug, str::FromStr, time::SystemTime};
+use tokio::{
+	net::ToSocketAddrs,
+	spawn,
+	time::{self, timeout_at, Duration, Instant},
+};
 use uriparse::{Path, Query, Scheme, URIBuilder};
 
 #[derive(Debug, Clone)]
-pub struct Client<'a, R> {
+pub struct Client<R> {
 	pub http: reqwest::Client,
 	pub ratelimiter: R,
-	pub api_scheme: Scheme<'a>,
+	pub api_scheme: Scheme<'static>,
 	pub api_version: u8,
-	pub api_base: &'a str,
+	pub api_base: String,
 	pub timeout: Option<Duration>,
 }
 
-impl<'a, R, T> Client<'a, T>
+impl<R> Client<R>
 where
-	R: Ratelimiter + Sync + Send + 'static,
-	T: Deref<Target = R>,
+	R: Ratelimiter + Clone + Sync + Send + 'static,
 {
 	fn create_request(&self, data: &SerializableHttpRequest) -> Result<Request> {
 		let path_str = format!(
@@ -46,7 +46,7 @@ where
 		builder
 			.scheme(self.api_scheme.clone())
 			.authority(Some(
-				self.api_base
+				(&*self.api_base)
 					.try_into()
 					.expect("Invalid authority configuration"),
 			))
@@ -94,11 +94,14 @@ where
 		Ok((req, bucket))
 	}
 
-	async fn do_request(
+	async fn do_request<A>(
 		&self,
-		message: &Message,
+		message: &Message<A, SerializableHttpRequest>,
 		data: &SerializableHttpRequest,
-	) -> Result<SerializableHttpResponse> {
+	) -> Result<SerializableHttpResponse>
+	where
+		A: ToSocketAddrs + Clone + Send + Sync + Debug,
+	{
 		#[cfg(feature = "metrics")]
 		let start = Instant::now();
 		let claim = self.claim(data).await;
@@ -159,15 +162,54 @@ where
 		})
 	}
 
-	pub async fn handle_message(&self, message: Message) -> Result<()> {
-		let data = match rmp_serde::from_slice::<SerializableHttpRequest>(&message.data) {
-			Ok(data) => data,
-			Err(e) => {
-				message.ack().await?;
-				return Err(e.into());
+	pub async fn consume_stream<A>(
+		&self,
+		mut stream: impl TryStream<
+				Ok = Message<A, SerializableHttpRequest>,
+				Error = rustacles_brokers::error::Error,
+			> + Unpin,
+	) -> Result<()>
+	where
+		A: 'static + ToSocketAddrs + Clone + Send + Sync + Debug,
+	{
+		while let Some(message) = stream.try_next().await? {
+			let client = self.clone();
+			match message.timeout_at {
+				Some(timeout) => {
+					let duration = timeout.duration_since(SystemTime::now()).expect("duration");
+					let instant = Instant::now() + duration;
+					spawn(async move {
+						timeout_at(instant, client.handle_message(message)).await;
+					});
+				}
+				None => {
+					spawn(async move {
+						client.handle_message(message).await;
+					});
+				}
+			}
+		}
+
+		Ok(())
+	}
+
+	pub async fn handle_message<A>(
+		&self,
+		message: Message<A, SerializableHttpRequest>,
+	) -> Result<()>
+	where
+		A: ToSocketAddrs + Clone + Send + Sync + Debug,
+	{
+		message.ack().await?;
+
+		let data = match message.data {
+			Some(ref data) => data,
+			None => {
+				warn!("Message missing data");
+				return Ok(());
 			}
 		};
-		debug!("--> REQ({}): {}", message.delivery_tag, data);
+		debug!("--> REQ({}): {}", message.id, data);
 
 		let timeout = data.timeout;
 		let req = self.do_request(&message, &data);
@@ -179,18 +221,14 @@ where
 		};
 
 		match &body {
-			Ok(res) => debug!("<-- RES({}): {}", message.delivery_tag, res),
-			Err(e) => warn!("<-- ERR({}): {:?}", message.delivery_tag, e),
+			Ok(res) => debug!("<-- RES({}): {}", message.id, res),
+			Err(e) => warn!("<-- ERR({}): {:?}", message.id, e),
 		}
 
 		let body = RequestResponse::<SerializableHttpResponse>::from(body);
 
-		let mut buf = Vec::new();
-		body.serialize(&mut Serializer::new(&mut buf).with_struct_map())
-			.expect("Unable to serialize response body");
-
 		message
-			.reply(buf)
+			.reply(&body)
 			.await
 			.expect("Unable to respond to query");
 

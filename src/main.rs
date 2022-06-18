@@ -1,17 +1,15 @@
-use log::{error, info};
+use log::info;
+#[cfg(not(feature = "redis-ratelimiter"))]
+use spectacles_proxy::ratelimiter::local::LocalRatelimiter;
 #[cfg(feature = "redis-ratelimiter")]
 use spectacles_proxy::ratelimiter::redis::RedisRatelimiter;
 #[cfg(feature = "metrics")]
 use spectacles_proxy::runtime::metrics::start_server;
 use spectacles_proxy::{
-	ratelimiter::{local::LocalRatelimiter, Ratelimiter},
-	runtime::{broker::Broker, Client, Config},
+	ratelimiter::Ratelimiter,
+	runtime::{Client, Config},
 };
-use std::sync::Arc;
-use tokio::{
-	spawn,
-	time::{sleep, Duration},
-};
+use tokio::spawn;
 use uriparse::Scheme;
 
 #[tokio::main]
@@ -22,56 +20,44 @@ async fn main() {
 		.unwrap_or_default()
 		.with_env();
 
-	let broker = Broker::from_config(&config).await;
+	let broker = config.new_broker();
 
 	let ratelimiter = get_ratelimiter(&config).await;
-	let client = Arc::new(Client {
+	let client = Client {
 		http: reqwest::Client::new(),
-		ratelimiter: Arc::new(ratelimiter),
-		api_base: "discord.com",
+		ratelimiter,
+		api_base: "discord.com".to_string(),
 		api_scheme: Scheme::HTTPS,
 		api_version: config.discord.api_version,
 		timeout: config.timeout.map(|d| d.into()),
-	});
+	};
 
 	#[cfg(feature = "metrics")]
-	if let Some(config) = config.metrics {
+	if let Some(ref config) = config.metrics {
 		info!("Launching metrics server");
-		spawn(start_server(config.path, config.addr));
+		spawn(start_server(config.path.clone(), config.addr));
 	}
 
 	info!("Beginning normal message consumption");
-	broker
-		.consume_messages(move |msg| {
-			let client = Arc::clone(&client);
-			async move { client.handle_message(msg).await }
-		})
-		.await;
+	client
+		.consume_stream(broker.consume(vec![]))
+		.await
+		.expect("consumed messages");
 }
 
 #[cfg(feature = "redis-ratelimiter")]
-async fn get_ratelimiter(config: &Config) -> Box<dyn Ratelimiter + Send + Sync + 'static> {
-	match &config.redis {
-		Some(config) => {
-			let redis_client =
-				redis::Client::open(config.url.to_string()).expect("Unable to connect to Redis");
+async fn get_ratelimiter(config: &Config) -> impl Ratelimiter + Clone {
+	let manager = redust::pool::Manager::new(config.redis.url.clone());
+	let pool = redust::pool::Pool::builder(manager)
+		.build()
+		.expect("Unable to connect to Redis");
 
-			let ratelimiter = loop {
-				match RedisRatelimiter::new(&redis_client).await {
-					Ok(r) => break r,
-					Err(e) => error!("Error setting up Redis ratelimiter; retrying in 5s: {}", e),
-				}
-
-				sleep(Duration::from_secs(5)).await;
-			};
-
-			Box::new(ratelimiter)
-		}
-		None => Box::new(LocalRatelimiter::default()),
-	}
+	RedisRatelimiter::new(pool.clone())
+		.await
+		.expect("should setup pool")
 }
 
 #[cfg(not(feature = "redis-ratelimiter"))]
-async fn get_ratelimiter(_config: &Config) -> impl Ratelimiter {
+async fn get_ratelimiter(_config: &Config) -> impl Ratelimiter + Clone {
 	LocalRatelimiter::default()
 }

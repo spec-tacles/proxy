@@ -8,7 +8,7 @@ use std::{
 };
 use tokio::time::{error::Elapsed, Duration};
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct SerializableHttpRequest {
 	pub method: String,
 	pub path: String,

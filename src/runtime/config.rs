@@ -1,15 +1,16 @@
 use anyhow::Result;
 use humantime::parse_duration;
+use rustacles_brokers::redis::{
+	redust::pool::{Manager, Pool},
+	RedisBroker,
+};
 use serde::Deserialize;
 use std::{env, net::SocketAddr, time::Duration};
 
-use super::Client;
-
 #[derive(Debug, Default, Deserialize)]
 pub struct Config {
-	pub redis: Option<RedisConfig>,
 	#[serde(default)]
-	pub amqp: AmqpConfig,
+	pub redis: RedisConfig,
 	#[serde(default)]
 	pub discord: DiscordConfig,
 	#[serde(default, with = "humantime_serde")]
@@ -25,14 +26,9 @@ impl Config {
 	pub fn with_env(mut self) -> Self {
 		for (k, v) in env::vars() {
 			match k.as_str() {
-				"REDIS_URL" => {
-					self.redis.as_mut().map(|conf| conf.url = v);
-				}
-				"AMQP_URL" => self.amqp.url = v,
-				"AMQP_GROUP" => self.amqp.group = v,
-				"AMQP_SUBGROUP" => self.amqp.subgroup = Some(v),
-				"AMQP_EVENT" => self.amqp.event = v,
-				"AMQP_CANCELLATION_EVENT" => self.amqp.cancellation_event = v,
+				"REDIS_URL" => self.redis.url = v,
+				"REDIS_GROUP" => self.redis.group = v,
+				"AMQP_EVENT" => self.redis.event = v,
 				"TIMEOUT" => self.timeout = parse_duration(&v).ok(),
 				"DISCORD_API_VERSION" => {
 					self.discord.api_version = v.parse().expect("valid DISCORD_API_VERSION (u8)")
@@ -43,11 +39,16 @@ impl Config {
 
 		self
 	}
-}
 
-impl<'a, R> From<Config> for Client<'a, R> {
-	fn from(_: Config) -> Self {
-		todo!()
+	pub fn new_broker(&self) -> RedisBroker<String> {
+		let manager = Manager::new(self.redis.url.clone().parse().unwrap());
+		let pool = Pool::builder(manager)
+			.max_size(self.redis.pool_size)
+			.build()
+			.unwrap();
+		let broker = RedisBroker::new(self.redis.group.clone(), pool);
+
+		broker
 	}
 }
 
@@ -55,11 +56,29 @@ impl<'a, R> From<Config> for Client<'a, R> {
 pub struct RedisConfig {
 	#[serde(default = "RedisConfig::default_url")]
 	pub url: String,
+	#[serde(default = "RedisConfig::default_group")]
+	pub group: String,
+	#[serde(default = "RedisConfig::default_event")]
+	pub event: String,
+	#[serde(default = "RedisConfig::default_pool_size")]
+	pub pool_size: usize,
 }
 
 impl RedisConfig {
 	fn default_url() -> String {
-		"redis://localhost:6379".into()
+		"localhost:6379".into()
+	}
+
+	fn default_group() -> String {
+		"gateway".into()
+	}
+
+	fn default_event() -> String {
+		"REQUEST".into()
+	}
+
+	fn default_pool_size() -> usize {
+		32
 	}
 }
 
@@ -67,50 +86,9 @@ impl Default for RedisConfig {
 	fn default() -> Self {
 		Self {
 			url: Self::default_url(),
-		}
-	}
-}
-
-#[derive(Debug, Deserialize)]
-pub struct AmqpConfig {
-	#[serde(default = "AmqpConfig::default_url")]
-	pub url: String,
-	#[serde(default = "AmqpConfig::default_group")]
-	pub group: String,
-	#[serde(default)]
-	pub subgroup: Option<String>,
-	#[serde(default = "AmqpConfig::default_event")]
-	pub event: String,
-	#[serde(default = "AmqpConfig::default_cancellation_event")]
-	pub cancellation_event: String,
-}
-
-impl AmqpConfig {
-	fn default_url() -> String {
-		"amqp://localhost:5672/%2f".into()
-	}
-
-	fn default_group() -> String {
-		"rest".into()
-	}
-
-	fn default_event() -> String {
-		"REQUEST".into()
-	}
-
-	fn default_cancellation_event() -> String {
-		"CANCEL".into()
-	}
-}
-
-impl Default for AmqpConfig {
-	fn default() -> Self {
-		Self {
-			url: Self::default_url(),
 			group: Self::default_group(),
-			subgroup: None,
 			event: Self::default_event(),
-			cancellation_event: Self::default_cancellation_event(),
+			pool_size: Self::default_pool_size(),
 		}
 	}
 }

@@ -1,4 +1,3 @@
-pub mod broker;
 pub mod client;
 pub mod config;
 #[cfg(feature = "metrics")]

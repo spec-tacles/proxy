@@ -1,7 +1,9 @@
 use anyhow::Result;
+use bytes::Bytes;
+use futures::TryStreamExt;
 use mockito::mock;
-use rmp_serde::{from_slice, to_vec};
-use rustacles_brokers::amqp::AmqpBroker;
+use rustacles_brokers::redis::redust::pool::{Manager, Pool};
+use rustacles_brokers::redis::RedisBroker;
 use spectacles_proxy::ratelimiter::local::LocalRatelimiter;
 use spectacles_proxy::{
 	models::{
@@ -11,33 +13,29 @@ use spectacles_proxy::{
 	runtime::{Client, Config},
 };
 use std::sync::Arc;
+use test_log::test;
 use tokio::{
 	spawn,
 	time::{timeout, Duration},
 };
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn handles_request() -> Result<()> {
-	let config = Config::default().with_env();
-	let broker = AmqpBroker::new(
-		&config.amqp.url,
-		config.amqp.group.clone(),
-		config.amqp.subgroup.clone(),
-	)
-	.await
-	.expect("unable to create AMQP broker");
+	let config = dbg!(Config::default().with_env());
+	let manager = Manager::new(config.redis.url.clone());
+	let pool = Pool::builder(manager)
+		.max_size(config.redis.pool_size)
+		.build()
+		.expect("pool should be built");
+	let broker = RedisBroker::new(config.redis.group.clone(), pool.clone());
 
-	let rpc_broker = AmqpBroker::new(&config.amqp.url, config.amqp.group, config.amqp.subgroup)
-		.await?
-		.with_rpc()
-		.await?;
-
-	let mut consumer = broker.consume(&config.amqp.event).await?;
+	let rpc_broker = RedisBroker::new(config.redis.group, pool);
 
 	let ratelimiter = LocalRatelimiter::default();
+	let mock_addr = mockito::server_address();
 
 	let client = Client {
-		api_base: mockito::SERVER_ADDRESS,
+		api_base: mock_addr.to_string(),
 		api_scheme: uriparse::Scheme::HTTP,
 		api_version: 6,
 		http: reqwest::Client::new(),
@@ -48,10 +46,12 @@ async fn handles_request() -> Result<()> {
 	let mock = mock("GET", "/api/v6/foo/bar")
 		.with_body(rmp_serde::to_vec(&["hello world"])?)
 		.create();
-	let mock_addr = mockito::server_address();
 
+	let events = vec![Bytes::from(config.redis.event.clone())];
+	broker.subscribe(events.iter()).await?;
 	spawn(async move {
-		while let Some(message) = consumer.recv().await {
+		let mut consumer = broker.consume(events);
+		while let Some(message) = consumer.try_next().await.expect("Next message") {
 			client
 				.handle_message(message)
 				.await
@@ -68,18 +68,17 @@ async fn handles_request() -> Result<()> {
 		timeout: None,
 	};
 
-	let response = timeout(
+	let rpc = timeout(
 		Duration::from_secs(5),
-		rpc_broker.call(
-			&config.amqp.event,
-			to_vec(&payload).unwrap(),
-			Default::default(),
-		),
+		rpc_broker.call(config.redis.event.as_str(), &payload, None),
 	)
 	.await??;
-	mock.assert();
 
-	let response: RequestResponse<SerializableHttpResponse> = from_slice(&response.data)?;
+	let response = rpc
+		.response::<RequestResponse<SerializableHttpResponse>>()
+		.await?
+		.unwrap();
+	mock.assert();
 
 	assert_eq!(response.status, ResponseStatus::Success);
 	assert_eq!(
@@ -88,7 +87,7 @@ async fn handles_request() -> Result<()> {
 			status: 200,
 			headers: vec![
 				("connection".to_string(), "close".to_string()),
-				("content-length".to_string(), "15".to_string())
+				("content-length".to_string(), "13".to_string())
 			]
 			.into_iter()
 			.collect(),

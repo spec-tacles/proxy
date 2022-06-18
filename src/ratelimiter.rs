@@ -1,28 +1,30 @@
 use anyhow::Result;
+use async_trait::async_trait;
 use reqwest::{header::HeaderMap, Response};
-use std::{future::Future, ops::Deref, pin::Pin, str::FromStr};
+use std::{ops::Deref, str::FromStr};
 
 pub mod local;
 #[cfg(feature = "redis-ratelimiter")]
 pub mod redis;
 
-pub type FutureResult<T> = Pin<Box<dyn Future<Output = Result<T>> + Send>>;
-
+#[async_trait]
 pub trait Ratelimiter {
-	fn claim(&self, bucket: String) -> FutureResult<()>;
-	fn release(&self, bucket: String, info: RatelimitInfo) -> FutureResult<()>;
+	async fn claim(&self, bucket: String) -> Result<()>;
+	async fn release(&self, bucket: String, info: RatelimitInfo) -> Result<()>;
 }
 
-impl<T> Ratelimiter for T
+#[async_trait]
+impl<T, U> Ratelimiter for T
 where
-	T: Deref<Target = dyn Ratelimiter + Send + Sync + 'static>,
+	T: Deref<Target = U> + Send + Sync,
+	U: Ratelimiter + Send + Sync + 'static,
 {
-	fn claim(&self, bucket: String) -> FutureResult<()> {
-		Ratelimiter::claim(self.deref(), bucket)
+	async fn claim(&self, bucket: String) -> Result<()> {
+		Ratelimiter::claim(self.deref(), bucket).await
 	}
 
-	fn release(&self, bucket: String, info: RatelimitInfo) -> FutureResult<()> {
-		Ratelimiter::release(self.deref(), bucket, info)
+	async fn release(&self, bucket: String, info: RatelimitInfo) -> Result<()> {
+		Ratelimiter::release(self.deref(), bucket, info).await
 	}
 }
 
