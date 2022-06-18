@@ -73,14 +73,6 @@ mod test {
 		try_join,
 	};
 
-	pub fn setup() {
-		let _ = env_logger::builder()
-			.is_test(true)
-			.format_timestamp_nanos()
-			.filter_level(log::LevelFilter::Debug)
-			.try_init();
-	}
-
 	async fn claim_timeout(
 		client: Arc<impl Ratelimiter>,
 		bucket: &str,

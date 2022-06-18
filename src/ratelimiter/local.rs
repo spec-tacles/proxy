@@ -1,7 +1,6 @@
 use super::{RatelimitInfo, Ratelimiter};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use log::debug;
 use std::{
 	collections::HashMap,
 	mem::drop,
@@ -18,6 +17,7 @@ use tokio::{
 	},
 	time::{sleep, sleep_until, Duration, Instant},
 };
+use tracing::{debug, instrument};
 
 #[derive(Debug)]
 struct Bucket {
@@ -43,6 +43,7 @@ pub struct LocalRatelimiter {
 
 #[async_trait]
 impl Ratelimiter for LocalRatelimiter {
+	#[instrument(level = "debug")]
 	async fn claim(&self, bucket_name: String) -> Result<()> {
 		let buckets = Arc::clone(&self.buckets);
 		let mut claim = buckets.write().await;
@@ -55,6 +56,7 @@ impl Ratelimiter for LocalRatelimiter {
 		Ok(())
 	}
 
+	#[instrument(level = "debug")]
 	async fn release(&self, bucket_name: String, info: RatelimitInfo) -> Result<()> {
 		let buckets = Arc::clone(&self.buckets);
 		let now = Instant::now();
@@ -133,47 +135,44 @@ impl Ratelimiter for LocalRatelimiter {
 
 #[cfg(test)]
 mod test {
-	use super::{super::test, LocalRatelimiter};
-	use anyhow::Result;
 	use std::sync::Arc;
+
+	use anyhow::Result;
+	use test_log::test;
+
+	use super::{super::test, LocalRatelimiter};
 
 	fn get_client() -> Arc<LocalRatelimiter> {
 		Default::default()
 	}
 
-	#[tokio::test]
+	#[test(tokio::test)]
 	async fn claim_release() -> Result<()> {
-		test::setup();
 		test::claim_release(get_client()).await
 	}
 
-	#[tokio::test]
+	#[test(tokio::test)]
 	async fn claim_timeout_release() -> Result<()> {
-		test::setup();
 		test::claim_timeout_release(get_client()).await
 	}
 
-	#[tokio::test]
+	#[test(tokio::test)]
 	async fn claim_3x() -> Result<()> {
-		test::setup();
 		test::claim_3x(get_client()).await
 	}
 
-	#[tokio::test]
+	#[test(tokio::test)]
 	async fn claim_limit_release() -> Result<()> {
-		test::setup();
 		test::claim_limit_release(get_client()).await
 	}
 
-	#[tokio::test]
+	#[test(tokio::test)]
 	async fn claim_limit_timeout() -> Result<()> {
-		test::setup();
 		test::claim_limit_timeout(get_client()).await
 	}
 
-	#[tokio::test]
+	#[test(tokio::test)]
 	async fn claim_limit_release_timeout() -> Result<()> {
-		test::setup();
 		test::claim_limit_release_timeout(get_client()).await
 	}
 }

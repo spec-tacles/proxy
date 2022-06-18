@@ -1,4 +1,3 @@
-use log::info;
 #[cfg(not(feature = "redis-ratelimiter"))]
 use spectacles_proxy::ratelimiter::local::LocalRatelimiter;
 #[cfg(feature = "redis-ratelimiter")]
@@ -10,11 +9,12 @@ use spectacles_proxy::{
 	runtime::{Client, Config},
 };
 use tokio::spawn;
+use tracing::info;
 use uriparse::Scheme;
 
 #[tokio::main]
 async fn main() {
-	env_logger::init();
+	tracing_subscriber::fmt().init();
 
 	let config = Config::from_toml_file("proxy.toml")
 		.unwrap_or_default()

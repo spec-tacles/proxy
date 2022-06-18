@@ -14,13 +14,11 @@ path = "src/main.rs"
 anyhow = "1.0"
 async-trait = "0.1"
 bytes = { version = "1.0", features = ["serde"] }
-env_logger = "0.7"
 futures = "0.3"
 http = "0.2"
 humantime = "2.0"
 humantime-serde = "1.0"
 lazy_static = "1.4"
-log = "0.4"
 prometheus = { version = "0.11", optional = true }
 redust = { git = "https://github.com/appellation/redust", features = ["script"] }
 rmp-serde = "0.14"
@@ -29,6 +27,8 @@ serde = "1.0"
 serde_repr = "0.1"
 tokio-stream = "0.1"
 toml = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uriparse = "0.6"
 
 [dependencies.tokio]
@@ -51,6 +51,5 @@ metrics = ["prometheus", "warp"]
 
 [dev-dependencies]
 mockito = "0.27"
-test-log = { version = "0.2", features = ["trace"] }
+test-log = { version = "0.2", default-features = false, features = ["trace"] }
 tracing = { version = "0.1", default-features = false }
-tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt"] }

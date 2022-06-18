@@ -8,7 +8,6 @@ use crate::{
 use anyhow::{Context, Result};
 use futures::{TryStream, TryStreamExt};
 use http::Method;
-use log::{debug, warn};
 use reqwest::Request;
 use rustacles_brokers::redis::message::Message;
 use std::{convert::TryInto, fmt::Debug, str::FromStr, time::SystemTime};
@@ -17,6 +16,7 @@ use tokio::{
 	spawn,
 	time::{self, timeout_at, Duration, Instant},
 };
+use tracing::{info, instrument, warn};
 use uriparse::{Path, Query, Scheme, URIBuilder};
 
 #[derive(Debug, Clone)]
@@ -86,6 +86,7 @@ where
 			.context("Unable to build HTTP request")?)
 	}
 
+	#[instrument(level = "trace", skip(self), ret)]
 	async fn claim(&self, data: &SerializableHttpRequest) -> Result<(Request, String)> {
 		let req = self.create_request(data)?;
 		let bucket = make_route(req.url().path())?;
@@ -94,6 +95,7 @@ where
 		Ok((req, bucket))
 	}
 
+	#[instrument(level = "debug", skip(self))]
 	async fn do_request<A>(
 		&self,
 		message: &Message<A, SerializableHttpRequest>,
@@ -193,6 +195,7 @@ where
 		Ok(())
 	}
 
+	#[instrument(level = "debug", skip(self))]
 	pub async fn handle_message<A>(
 		&self,
 		message: Message<A, SerializableHttpRequest>,
@@ -209,7 +212,7 @@ where
 				return Ok(());
 			}
 		};
-		debug!("--> REQ({}): {}", message.id, data);
+		info!("--> REQ({}): {}", message.id, data);
 
 		let timeout = data.timeout;
 		let req = self.do_request(&message, &data);
@@ -221,7 +224,7 @@ where
 		};
 
 		match &body {
-			Ok(res) => debug!("<-- RES({}): {}", message.id, res),
+			Ok(res) => info!("<-- RES({}): {}", message.id, res),
 			Err(e) => warn!("<-- ERR({}): {:?}", message.id, e),
 		}
 

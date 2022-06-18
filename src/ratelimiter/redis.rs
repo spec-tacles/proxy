@@ -3,10 +3,10 @@ use anyhow::Result;
 use async_trait::async_trait;
 use futures::TryStreamExt;
 use lazy_static::lazy_static;
-use log::debug;
 use redust::{model::pubsub, pool::Pool, resp::from_data, script::Script};
 use std::{fmt::Debug, str::from_utf8, time::Duration};
 use tokio::{net::ToSocketAddrs, time::sleep};
+use tracing::{debug, instrument};
 
 static NOTIFY_KEY: &'static str = "rest_ready";
 
@@ -15,7 +15,7 @@ lazy_static! {
 	static ref RELEASE_SCRIPT: Script<3> = Script::new(include_bytes!("./scripts/release.lua"));
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RedisRatelimiter<A>
 where
 	A: ToSocketAddrs + Clone + Send + Sync + Debug,
@@ -37,6 +37,7 @@ impl<A> Ratelimiter for RedisRatelimiter<A>
 where
 	A: ToSocketAddrs + Clone + Send + Sync + Debug,
 {
+	#[instrument(level = "debug")]
 	async fn claim(&self, bucket: String) -> Result<()> {
 		loop {
 			let mut conn = self.redis.get().await?;
@@ -74,6 +75,7 @@ where
 		Ok(())
 	}
 
+	#[instrument(level = "debug")]
 	async fn release(&self, bucket: String, info: RatelimitInfo) -> Result<()> {
 		let mut conn = self.redis.get().await?;
 		RELEASE_SCRIPT
@@ -92,13 +94,16 @@ where
 
 #[cfg(test)]
 mod test {
-	use super::{super::test, RedisRatelimiter};
-	use anyhow::Result;
-	use redust::pool::{deadpool::managed::HookFuture, Hook, Manager, Pool};
 	use std::sync::{
 		atomic::{AtomicUsize, Ordering},
 		Arc,
 	};
+
+	use anyhow::Result;
+	use redust::pool::{deadpool::managed::HookFuture, Hook, Manager, Pool};
+	use test_log::test;
+
+	use super::{super::test, RedisRatelimiter};
 
 	static NEXT_DB: AtomicUsize = AtomicUsize::new(0);
 
@@ -122,44 +127,38 @@ mod test {
 		Ok(Arc::new(RedisRatelimiter::new(pool)))
 	}
 
-	#[tokio::test]
+	#[test(tokio::test)]
 	async fn claim_release() -> Result<()> {
-		test::setup();
 		let client = get_client().await?;
 		test::claim_release(client).await
 	}
 
-	#[tokio::test]
+	#[test(tokio::test)]
 	async fn claim_timeout_release() -> Result<()> {
-		test::setup();
 		let client = get_client().await?;
 		test::claim_timeout_release(client).await
 	}
 
-	#[tokio::test]
+	#[test(tokio::test)]
 	async fn claim_3x() -> Result<()> {
-		test::setup();
 		let client = get_client().await?;
 		test::claim_3x(client).await
 	}
 
-	#[tokio::test]
+	#[test(tokio::test)]
 	async fn claim_limit_release() -> Result<()> {
-		test::setup();
 		let client = get_client().await?;
 		test::claim_limit_release(client).await
 	}
 
-	#[tokio::test]
+	#[test(tokio::test)]
 	async fn claim_limit_timeout() -> Result<()> {
-		test::setup();
 		let client = get_client().await?;
 		test::claim_limit_timeout(client).await
 	}
 
-	#[tokio::test]
+	#[test(tokio::test)]
 	async fn claim_limit_release_timeout() -> Result<()> {
-		test::setup();
 		let client = get_client().await?;
 		test::claim_limit_release_timeout(client).await
 	}
