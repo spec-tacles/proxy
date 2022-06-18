@@ -27,9 +27,9 @@ async fn handles_request() -> Result<()> {
 		.max_size(config.redis.pool_size)
 		.build()
 		.expect("pool should be built");
-	let broker = RedisBroker::new(config.redis.group.clone(), pool.clone());
+	let broker = RedisBroker::new(config.broker.group.clone(), pool.clone());
 
-	let rpc_broker = RedisBroker::new(config.redis.group, pool);
+	let rpc_broker = RedisBroker::new(config.broker.group, pool);
 
 	let ratelimiter = LocalRatelimiter::default();
 	let mock_addr = mockito::server_address();
@@ -47,7 +47,7 @@ async fn handles_request() -> Result<()> {
 		.with_body(rmp_serde::to_vec(&["hello world"])?)
 		.create();
 
-	let events = vec![Bytes::from(config.redis.event.clone())];
+	let events = vec![Bytes::from(config.broker.event.clone())];
 	broker.subscribe(events.iter()).await?;
 	spawn(async move {
 		let mut consumer = broker.consume(events);
@@ -70,7 +70,7 @@ async fn handles_request() -> Result<()> {
 
 	let rpc = timeout(
 		Duration::from_secs(5),
-		rpc_broker.call(config.redis.event.as_str(), &payload, None),
+		rpc_broker.call(config.broker.event.as_str(), &payload, None),
 	)
 	.await??;
 

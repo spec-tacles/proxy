@@ -13,9 +13,11 @@ pub struct Config {
 	pub redis: RedisConfig,
 	#[serde(default)]
 	pub discord: DiscordConfig,
-	#[serde(default, with = "humantime_serde")]
+	#[serde(with = "humantime_serde")]
 	pub timeout: Option<Duration>,
 	pub metrics: Option<MetricsConfig>,
+	#[serde(default)]
+	pub broker: BrokerConfig,
 }
 
 impl Config {
@@ -26,12 +28,22 @@ impl Config {
 	pub fn with_env(mut self) -> Self {
 		for (k, v) in env::vars() {
 			match k.as_str() {
+				"BROKER_GROUP" => self.broker.group = v,
+				"BROKER_EVENT" => self.broker.event = v,
 				"REDIS_URL" => self.redis.url = v,
-				"REDIS_GROUP" => self.redis.group = v,
-				"AMQP_EVENT" => self.redis.event = v,
+				"REDIS_POOL_SIZE" => {
+					self.redis.pool_size = v.parse().expect("valid REDIS_POOL_SIZE (usize)")
+				}
 				"TIMEOUT" => self.timeout = parse_duration(&v).ok(),
 				"DISCORD_API_VERSION" => {
 					self.discord.api_version = v.parse().expect("valid DISCORD_API_VERSION (u8)")
+				}
+				"METRICS_ADDR" => {
+					self.metrics.get_or_insert(MetricsConfig::default()).addr =
+						v.parse().expect("valid METRICS_ADDR (SocketAddr)")
+				}
+				"METRICS_PATH" => {
+					self.metrics.get_or_insert(MetricsConfig::default()).path = v;
 				}
 				_ => {}
 			}
@@ -46,9 +58,8 @@ impl Config {
 			.max_size(self.redis.pool_size)
 			.build()
 			.unwrap();
-		let broker = RedisBroker::new(self.redis.group.clone(), pool);
 
-		broker
+		RedisBroker::new(self.broker.group.clone(), pool)
 	}
 }
 
@@ -56,10 +67,6 @@ impl Config {
 pub struct RedisConfig {
 	#[serde(default = "RedisConfig::default_url")]
 	pub url: String,
-	#[serde(default = "RedisConfig::default_group")]
-	pub group: String,
-	#[serde(default = "RedisConfig::default_event")]
-	pub event: String,
 	#[serde(default = "RedisConfig::default_pool_size")]
 	pub pool_size: usize,
 }
@@ -67,14 +74,6 @@ pub struct RedisConfig {
 impl RedisConfig {
 	fn default_url() -> String {
 		"localhost:6379".into()
-	}
-
-	fn default_group() -> String {
-		"gateway".into()
-	}
-
-	fn default_event() -> String {
-		"REQUEST".into()
 	}
 
 	fn default_pool_size() -> usize {
@@ -86,8 +85,6 @@ impl Default for RedisConfig {
 	fn default() -> Self {
 		Self {
 			url: Self::default_url(),
-			group: Self::default_group(),
-			event: Self::default_event(),
 			pool_size: Self::default_pool_size(),
 		}
 	}
@@ -101,7 +98,7 @@ pub struct DiscordConfig {
 
 impl DiscordConfig {
 	fn default_api_version() -> u8 {
-		return 6;
+		return 10;
 	}
 }
 
@@ -136,6 +133,33 @@ impl Default for MetricsConfig {
 		Self {
 			addr: Self::default_addr(),
 			path: Self::default_path(),
+		}
+	}
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BrokerConfig {
+	#[serde(default = "BrokerConfig::default_group")]
+	pub group: String,
+	#[serde(default = "BrokerConfig::default_event")]
+	pub event: String,
+}
+
+impl BrokerConfig {
+	fn default_group() -> String {
+		"gateway".to_string()
+	}
+
+	fn default_event() -> String {
+		"REQUEST".to_string()
+	}
+}
+
+impl Default for BrokerConfig {
+	fn default() -> Self {
+		Self {
+			group: Self::default_group(),
+			event: Self::default_event(),
 		}
 	}
 }

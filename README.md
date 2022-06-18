@@ -8,7 +8,7 @@ The Spectacles proxy is responsible for handling all of the data interactions wi
 
 ## Usage
 
-The proxy communicates with other services using the [Spectacles spec](https://github.com/spec-tacles/spec) over AMQP.
+The proxy communicates with other services using the [Spectacles spec](https://github.com/spec-tacles/spec) over Redis.
 
 - JS: [`brokers.js`](https://github.com/spec-tacles/brokers.js)
 - C#: [`Spectacles.NET`](https://github.com/spec-tacles/Spectacles.NET)
@@ -20,20 +20,25 @@ The proxy can be configured with the following options. This file must be called
 ```toml
 timeout = "" # TIMEOUT
 
+[broker]
+group = "gateway" # BROKER_GROUP
+event = "REQUEST" # BROKER_EVENT
+
 [redis]
 url = "localhost:6379" # REDIS_URL
+pool_size = 32 # REDIS_POOL_SIZE
 
 [discord]
-api_version = 6 # DISCORD_API_VERSION
+api_version = 10 # DISCORD_API_VERSION
+
+[metrics]
+# addr = "0.0.0.0:3000" # METRICS_ADDR
+# path = "metrics" # METRICS_PATH
 ```
 
 ### Timeout
 
 The timeout is a human-readable duration (e.g. 2min). It applies for the entire duration of the request, including time paused for ratelimiting. Once the timeout occurs, the proxy will attempt to stop the request; however, it's possible for the data to be sent to Discord and the timeout to occur during the response, meaning that your client will receive the error but the request will have succeeded. This is done to protect against indefinitely hung requests in case Discord doesn't respond.
-
-### Cancellation
-
-Requests can be explicitly cancelled by the client by publishing an event to the `amqp.cancellation_event` queue with the correlation ID of the request to cancel. This ID must be valid UTF-8.
 
 ### Request Format
 

@@ -22,7 +22,7 @@ async fn main() {
 
 	let broker = config.new_broker();
 
-	let ratelimiter = get_ratelimiter(&config).await;
+	let ratelimiter = get_ratelimiter(&config);
 	let client = Client {
 		http: reqwest::Client::new(),
 		ratelimiter,
@@ -46,18 +46,17 @@ async fn main() {
 }
 
 #[cfg(feature = "redis-ratelimiter")]
-async fn get_ratelimiter(config: &Config) -> impl Ratelimiter + Clone {
+fn get_ratelimiter(config: &Config) -> impl Ratelimiter + Clone {
 	let manager = redust::pool::Manager::new(config.redis.url.clone());
 	let pool = redust::pool::Pool::builder(manager)
+		.max_size(config.redis.pool_size)
 		.build()
 		.expect("Unable to connect to Redis");
 
 	RedisRatelimiter::new(pool.clone())
-		.await
-		.expect("should setup pool")
 }
 
 #[cfg(not(feature = "redis-ratelimiter"))]
-async fn get_ratelimiter(_config: &Config) -> impl Ratelimiter + Clone {
+fn get_ratelimiter(_config: &Config) -> impl Ratelimiter + Clone {
 	LocalRatelimiter::default()
 }

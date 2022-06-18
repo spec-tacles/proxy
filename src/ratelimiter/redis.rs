@@ -27,8 +27,8 @@ impl<A> RedisRatelimiter<A>
 where
 	A: ToSocketAddrs + Clone + Send + Sync + Debug + 'static,
 {
-	pub async fn new(pool: Pool<A>) -> Result<Self> {
-		Ok(Self { redis: pool })
+	pub fn new(pool: Pool<A>) -> Self {
+		Self { redis: pool }
 	}
 }
 
@@ -119,7 +119,7 @@ mod test {
 			))
 			.build()?;
 
-		Ok(Arc::new(RedisRatelimiter::new(pool).await?))
+		Ok(Arc::new(RedisRatelimiter::new(pool)))
 	}
 
 	#[tokio::test]
