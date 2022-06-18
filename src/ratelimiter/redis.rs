@@ -1,7 +1,6 @@
 use super::{RatelimitInfo, Ratelimiter};
 use anyhow::Result;
 use async_trait::async_trait;
-use futures::TryStreamExt;
 use lazy_static::lazy_static;
 use log::debug;
 use redust::{model::pubsub, pool::Pool, resp::from_data, script::Script};
@@ -35,17 +34,15 @@ where
 		let pubsub_sender = sender.clone();
 		spawn(async move {
 			sub_conn.cmd(["SUBSCRIBE", NOTIFY_KEY]).await.unwrap();
-			while let Some(data) = sub_conn.try_next().await.unwrap() {
-				match from_data(data).unwrap() {
+			loop {
+				match from_data(sub_conn.read_cmd().await.unwrap()).unwrap() {
 					pubsub::Response::Message(msg) => {
-						if let Err(_) = pubsub_sender.send(msg.data.into_owned()) {
-							break;
-						}
+						let _ = pubsub_sender.send(msg.data.into_owned());
 					}
 					_ => {}
 				}
 			}
-			sub_conn.cmd(["UNSUBSCRIBE", NOTIFY_KEY]).await.unwrap();
+			// sub_conn.cmd(["UNSUBSCRIBE", NOTIFY_KEY]).await.unwrap();
 		});
 
 		Ok(Self {

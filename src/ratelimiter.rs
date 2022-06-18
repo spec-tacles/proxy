@@ -60,6 +60,7 @@ impl<'a, E> From<std::result::Result<&'a Response, E>> for RatelimitInfo {
 mod test {
 	use super::{RatelimitInfo, Ratelimiter};
 	use anyhow::{anyhow, Result};
+	use futures::TryFutureExt;
 	use std::{
 		sync::{
 			atomic::{AtomicBool, Ordering},
@@ -105,12 +106,12 @@ mod test {
 	}
 
 	pub async fn claim_release(client: Arc<impl Ratelimiter>) -> Result<()> {
-		claim_timeout(client.clone(), "foo", 0, 50).await?;
+		claim_timeout(client.clone(), "foo1", 0, 50).await?;
 
 		let released = Arc::new(AtomicBool::new(false));
 		try_join!(
 			async {
-				claim_timeout(client.clone(), "foo", 0, 100).await?;
+				claim_timeout(client.clone(), "foo1", 0, 100).await?;
 				match released.load(Ordering::Relaxed) {
 					true => Ok(()),
 					false => Err(anyhow::anyhow!("claimed before lock was released")),
@@ -119,7 +120,7 @@ mod test {
 			async {
 				client
 					.clone()
-					.release("foo".into(), RatelimitInfo::default())
+					.release("foo1".into(), RatelimitInfo::default())
 					.await?;
 				released.store(true, Ordering::Relaxed);
 				Ok(())
@@ -130,13 +131,13 @@ mod test {
 	}
 
 	pub async fn claim_timeout_release(client: Arc<impl Ratelimiter>) -> Result<()> {
-		claim_timeout(client.clone(), "foo", 0, 50).await?;
+		claim_timeout(client.clone(), "foo2", 0, 50).await?;
 
 		let start = SystemTime::now();
 		client
 			.clone()
 			.release(
-				"foo".into(),
+				"foo2".into(),
 				RatelimitInfo {
 					limit: None,
 					resets_in: Some(5000),
@@ -144,26 +145,28 @@ mod test {
 			)
 			.await?;
 
-		claim_timeout(client.clone(), "foo", 0, 50).await?;
+		claim_timeout(client.clone(), "foo2", 0, 50).await?;
 
 		let min = Duration::from_secs(5) - SystemTime::now().duration_since(start)?;
 		let min = min.as_millis() as u64;
-		claim_timeout(client, "foo", min, min + 50).await?;
+		claim_timeout(client, "foo2", min, min + 50).await?;
 		Ok(())
 	}
 
 	pub async fn claim_3x(client: Arc<impl Ratelimiter>) -> Result<()> {
+		let claims = claim_timeout(client.clone(), "foo3", 0, 50)
+			.and_then(|_| claim_timeout(client.clone(), "foo3", 5000, 5050))
+			.and_then(|_| claim_timeout(client.clone(), "foo3", 5000, 5050));
+
 		try_join!(
-			claim_timeout(client.clone(), "foo", 0, 50),
-			claim_timeout(client.clone(), "foo", 5000, 5050),
-			claim_timeout(client.clone(), "foo", 10000, 10050),
+			claims,
 			async {
 				for _ in 0..2 {
 					sleep(Duration::from_secs(5)).await;
 					client
 						.clone()
 						.release(
-							"foo".into(),
+							"foo3".into(),
 							RatelimitInfo {
 								limit: None,
 								resets_in: None,
@@ -180,11 +183,11 @@ mod test {
 	}
 
 	pub async fn claim_limit_release(client: Arc<impl Ratelimiter>) -> Result<()> {
-		claim_timeout(client.clone(), "foo", 0, 50).await?;
+		claim_timeout(client.clone(), "foo4", 0, 50).await?;
 		client
 			.clone()
 			.release(
-				"foo".into(),
+				"foo4".into(),
 				RatelimitInfo {
 					limit: Some(2),
 					resets_in: None,
@@ -193,13 +196,13 @@ mod test {
 			.await?;
 
 		for _ in 0..2 {
-			claim_timeout(client.clone(), "foo", 0, 50).await?;
+			claim_timeout(client.clone(), "foo4", 0, 50).await?;
 		}
 
 		let released = AtomicBool::new(false);
 		try_join!(
 			async {
-				claim_timeout(client.clone(), "foo", 5000, 5050).await?;
+				claim_timeout(client.clone(), "foo4", 5000, 5050).await?;
 				match released.load(Ordering::Relaxed) {
 					true => Ok(()),
 					false => Err(anyhow::anyhow!("claimed before release")),
@@ -210,7 +213,7 @@ mod test {
 				client
 					.clone()
 					.release(
-						"foo".into(),
+						"foo4".into(),
 						RatelimitInfo {
 							limit: Some(2),
 							resets_in: None,
@@ -226,13 +229,13 @@ mod test {
 	}
 
 	pub async fn claim_limit_timeout(client: Arc<impl Ratelimiter>) -> Result<()> {
-		claim_timeout(client.clone(), "foo", 0, 50).await?;
+		claim_timeout(client.clone(), "foo5", 0, 50).await?;
 
 		let start = SystemTime::now();
 		client
 			.clone()
 			.release(
-				"foo".into(),
+				"foo5".into(),
 				RatelimitInfo {
 					limit: Some(2),
 					resets_in: Some(5000),
@@ -241,25 +244,25 @@ mod test {
 			.await?;
 
 		for _ in 0..2 {
-			claim_timeout(client.clone(), "foo", 0, 50).await?;
+			claim_timeout(client.clone(), "foo5", 0, 50).await?;
 		}
 
 		let min = Duration::from_secs(5) - SystemTime::now().duration_since(start)?;
 		let min = min.as_millis() as u64;
-		claim_timeout(client.clone(), "foo", min, min + 50).await?;
-		claim_timeout(client, "foo", 0, 50).await?;
+		claim_timeout(client.clone(), "foo5", min, min + 50).await?;
+		claim_timeout(client, "foo5", 0, 50).await?;
 
 		Ok(())
 	}
 
 	pub async fn claim_limit_release_timeout(client: Arc<impl Ratelimiter>) -> Result<()> {
-		claim_timeout(client.clone(), "foo", 0, 50).await?;
+		claim_timeout(client.clone(), "foo6", 0, 50).await?;
 
 		let start = SystemTime::now();
 		client
 			.clone()
 			.release(
-				"foo".into(),
+				"foo6".into(),
 				RatelimitInfo {
 					limit: Some(2),
 					resets_in: Some(5000),
@@ -268,14 +271,14 @@ mod test {
 			.await?;
 
 		for _ in 0..2 {
-			claim_timeout(client.clone(), "foo", 0, 50).await?;
+			claim_timeout(client.clone(), "foo6", 0, 50).await?;
 		}
 
 		sleep(Duration::from_secs(1)).await;
 		client
 			.clone()
 			.release(
-				"foo".into(),
+				"foo6".into(),
 				RatelimitInfo {
 					limit: Some(2),
 					resets_in: Some(4000),
@@ -285,8 +288,8 @@ mod test {
 
 		let min = Duration::from_secs(5) - SystemTime::now().duration_since(start)?;
 		let min = min.as_millis() as u64;
-		claim_timeout(client.clone(), "foo", min, min + 50).await?;
-		claim_timeout(client.clone(), "foo", 0, 50).await?;
+		claim_timeout(client.clone(), "foo6", min, min + 50).await?;
+		claim_timeout(client.clone(), "foo6", 0, 50).await?;
 
 		Ok(())
 	}
