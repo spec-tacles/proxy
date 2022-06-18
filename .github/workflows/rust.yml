@@ -22,24 +22,11 @@ jobs:
     - run: rustup update stable
     - name: Build
       run: cargo build --release --verbose
-    - name: Prepare output
-      run: find ./target/release -type f -exec cp {} ./out \;
-    - name: Compress output
-      run: tar -zcvf proxy.tar.gz ./out
-    - uses: actions/upload-artifact@v2
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v2
       with:
-        name: proxy-${{ runner.OS }}.tar.gz
-        path: proxy.tar.gz
-    - name: Upload Release Asset
-      if: github.event == 'release'
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: proxy.tar.gz
-        asset_name: proxy-${{ runner.OS }}.tar.gz
-        asset_content_type: application/zip
+        name: proxy-${{ runner.OS }}
+        path: target/release/proxy*
 
   publish:
     runs-on: ubuntu-latest
