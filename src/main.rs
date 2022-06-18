@@ -40,7 +40,7 @@ async fn main() {
 
 	info!("Beginning normal message consumption");
 	client
-		.consume_stream(broker.consume(vec![]))
+		.consume_stream(broker.consume(vec![config.broker.event.into()]))
 		.await
 		.expect("consumed messages");
 }
