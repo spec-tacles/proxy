@@ -158,26 +158,23 @@ mod test {
 			.and_then(|_| claim_timeout(client.clone(), "foo3", 5000, 5050))
 			.and_then(|_| claim_timeout(client.clone(), "foo3", 5000, 5050));
 
-		try_join!(
-			claims,
-			async {
-				for _ in 0..2 {
-					sleep(Duration::from_secs(5)).await;
-					client
-						.clone()
-						.release(
-							"foo3".into(),
-							RatelimitInfo {
-								limit: None,
-								resets_in: None,
-							},
-						)
-						.await?;
-				}
-
-				Ok(())
+		try_join!(claims, async {
+			for _ in 0..2 {
+				sleep(Duration::from_secs(5)).await;
+				client
+					.clone()
+					.release(
+						"foo3".into(),
+						RatelimitInfo {
+							limit: None,
+							resets_in: None,
+						},
+					)
+					.await?;
 			}
-		)?;
+
+			Ok(())
+		})?;
 
 		Ok(())
 	}

@@ -33,7 +33,7 @@ uriparse = "0.6"
 
 [dependencies.tokio]
 version = "1.0"
-features = ["rt-multi-thread", "sync", "time", "macros"]
+features = ["rt-multi-thread", "time", "macros"]
 
 [dependencies.reqwest]
 version = "0.11"

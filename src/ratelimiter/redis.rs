@@ -1,11 +1,12 @@
 use super::{RatelimitInfo, Ratelimiter};
 use anyhow::Result;
 use async_trait::async_trait;
+use futures::TryStreamExt;
 use lazy_static::lazy_static;
 use log::debug;
 use redust::{model::pubsub, pool::Pool, resp::from_data, script::Script};
 use std::{fmt::Debug, str::from_utf8, time::Duration};
-use tokio::{net::ToSocketAddrs, spawn, sync::broadcast};
+use tokio::{net::ToSocketAddrs, time::sleep};
 
 static NOTIFY_KEY: &'static str = "rest_ready";
 
@@ -20,7 +21,6 @@ where
 	A: ToSocketAddrs + Clone + Send + Sync + Debug,
 {
 	redis: Pool<A>,
-	ready_publisher: broadcast::Sender<Vec<u8>>,
 }
 
 impl<A> RedisRatelimiter<A>
@@ -28,27 +28,7 @@ where
 	A: ToSocketAddrs + Clone + Send + Sync + Debug + 'static,
 {
 	pub async fn new(pool: Pool<A>) -> Result<Self> {
-		let (sender, _) = broadcast::channel(32);
-		let mut sub_conn = pool.get().await?;
-
-		let pubsub_sender = sender.clone();
-		spawn(async move {
-			sub_conn.cmd(["SUBSCRIBE", NOTIFY_KEY]).await.unwrap();
-			loop {
-				match from_data(sub_conn.read_cmd().await.unwrap()).unwrap() {
-					pubsub::Response::Message(msg) => {
-						let _ = pubsub_sender.send(msg.data.into_owned());
-					}
-					_ => {}
-				}
-			}
-			// sub_conn.cmd(["UNSUBSCRIBE", NOTIFY_KEY]).await.unwrap();
-		});
-
-		Ok(Self {
-			redis: pool,
-			ready_publisher: sender,
-		})
+		Ok(Self { redis: pool })
 	}
 }
 
@@ -58,7 +38,7 @@ where
 	A: ToSocketAddrs + Clone + Send + Sync + Debug,
 {
 	async fn claim(&self, bucket: String) -> Result<()> {
-		'outer: loop {
+		loop {
 			let mut conn = self.redis.get().await?;
 			let expiration = CLAIM_SCRIPT
 				.exec(&mut conn)
@@ -70,7 +50,7 @@ where
 			debug!("Received expiration of {}ms for \"{}\"", expiration, bucket);
 
 			if expiration.is_positive() {
-				tokio::time::sleep(Duration::from_millis(expiration as u64)).await;
+				sleep(Duration::from_millis(expiration as u64)).await;
 				continue;
 			}
 
@@ -78,12 +58,17 @@ where
 				break;
 			}
 
-			let mut sub = self.ready_publisher.subscribe();
-			loop {
-				if from_utf8(&sub.recv().await?) == Ok(&bucket) {
-					continue 'outer;
+			conn.cmd(["SUBSCRIBE", NOTIFY_KEY]).await?;
+			while let Some(data) = conn.try_next().await? {
+				let res = from_data::<pubsub::Response>(data)?;
+				match res {
+					pubsub::Response::Message(msg) if from_utf8(&msg.data) == Ok(&bucket) => {
+						break;
+					}
+					_ => {}
 				}
 			}
+			conn.cmd(["UNSUBSCRIBE", NOTIFY_KEY]).await?;
 		}
 
 		Ok(())
