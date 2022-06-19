@@ -19,6 +19,9 @@ use tokio::{
 use tracing::{info, instrument, warn};
 use uriparse::{Path, Query, Scheme, URIBuilder};
 
+#[cfg(feature = "metrics")]
+use super::metrics::LatencyTracker;
+
 #[derive(Debug, Clone)]
 pub struct Client<R> {
 	pub http: reqwest::Client,
@@ -105,30 +108,25 @@ where
 		A: ToSocketAddrs + Clone + Send + Sync + Debug,
 	{
 		#[cfg(feature = "metrics")]
-		let start = Instant::now();
-		let claim = self.claim(data).await;
-		#[cfg(feature = "metrics")]
-		let latency = Instant::now().duration_since(start);
+		let req_labels: [&str; 2] = [&data.method, &data.path];
 
-		#[cfg(feature = "metrics")]
-		let labels: [&str; 2] = [&data.method, &data.path];
-
-		#[cfg(feature = "metrics")]
-		RATELIMIT_LATENCY
-			.get_metric_with_label_values(&labels)?
-			.observe(latency.as_secs_f64());
+		let claim = {
+			#[cfg(feature = "metrics")]
+			let _ = LatencyTracker::new(&RATELIMIT_LATENCY, &req_labels);
+			self.claim(data).await
+		};
 
 		message.ack().await?;
 		let (req, bucket) = claim?;
 
 		#[cfg(feature = "metrics")]
-		REQUESTS_TOTAL.get_metric_with_label_values(&labels)?.inc();
+		REQUESTS_TOTAL.get_metric_with_label_values(&req_labels)?.inc();
 
-		#[cfg(feature = "metrics")]
-		let start = Instant::now();
-		let res = self.http.execute(req).await;
-		#[cfg(feature = "metrics")]
-		let latency = Instant::now().duration_since(start);
+		let res = {
+			#[cfg(feature = "metrics")]
+			let _ = LatencyTracker::new(&REQUEST_LATENCY, &req_labels);
+			self.http.execute(req).await
+		};
 
 		self.ratelimiter
 			.release(bucket, res.as_ref().into())
@@ -136,16 +134,11 @@ where
 		let res = res?;
 
 		#[cfg(feature = "metrics")]
-		let status = res.status();
-		#[cfg(feature = "metrics")]
-		let labels = [&data.method, &data.path, status.as_str()];
-
-		#[cfg(feature = "metrics")]
-		RESPONSES_TOTAL.get_metric_with_label_values(&labels)?.inc();
-		#[cfg(feature = "metrics")]
-		REQUEST_LATENCY
-			.get_metric_with_label_values(&labels)?
-			.observe(latency.as_secs_f64());
+		{
+			let status = res.status();
+			let res_labels = [&data.method, &data.path, status.as_str()];
+			RESPONSES_TOTAL.get_metric_with_label_values(&res_labels)?.inc();
+		}
 
 		Ok(SerializableHttpResponse {
 			status: res.status().as_u16(),

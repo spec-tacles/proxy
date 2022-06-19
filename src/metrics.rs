@@ -17,7 +17,7 @@ lazy_static! {
 	pub static ref REQUEST_LATENCY: HistogramVec = register_histogram_vec!(
 		"proxy_request_latency",
 		"Latency of HTTP requests (in seconds)",
-		&["method", "path", "status"]
+		&["method", "path"]
 	)
 	.unwrap();
 	pub static ref RATELIMIT_LATENCY: HistogramVec = register_histogram_vec!(
