@@ -147,7 +147,7 @@ pub struct BrokerConfig {
 
 impl BrokerConfig {
 	fn default_group() -> String {
-		"gateway".to_string()
+		"proxy".to_string()
 	}
 
 	fn default_event() -> String {

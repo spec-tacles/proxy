@@ -21,7 +21,7 @@ The proxy can be configured with the following options. This file must be called
 timeout = "" # TIMEOUT
 
 [broker]
-group = "gateway" # BROKER_GROUP
+group = "proxy" # BROKER_GROUP
 event = "REQUEST" # BROKER_EVENT
 
 [redis]
