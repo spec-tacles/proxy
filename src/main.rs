@@ -1,3 +1,4 @@
+use anyhow::Result;
 #[cfg(not(feature = "redis-ratelimiter"))]
 use spectacles_proxy::ratelimiter::local::LocalRatelimiter;
 #[cfg(feature = "redis-ratelimiter")]
@@ -13,7 +14,7 @@ use tracing::info;
 use uriparse::Scheme;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
 	tracing_subscriber::fmt().init();
 
 	let config = Config::from_toml_file("proxy.toml")
@@ -38,11 +39,15 @@ async fn main() {
 		spawn(start_server(config.path.clone(), config.addr));
 	}
 
+	let events = vec![config.broker.event.into()];
+	broker.ensure_events(events.iter()).await?;
+
 	info!("Beginning normal message consumption");
 	client
-		.consume_stream(broker.consume(vec![config.broker.event.into()]))
-		.await
-		.expect("consumed messages");
+		.consume_stream(broker.consume(events))
+		.await?;
+
+	Ok(())
 }
 
 #[cfg(feature = "redis-ratelimiter")]
