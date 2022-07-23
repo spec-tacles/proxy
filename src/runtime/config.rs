@@ -53,7 +53,7 @@ impl Config {
 	}
 
 	pub fn new_broker(&self) -> RedisBroker<String> {
-		let manager = Manager::new(self.redis.url.clone().parse().unwrap());
+		let manager = Manager::new(self.redis.url.clone());
 		let pool = Pool::builder(manager)
 			.max_size(self.redis.pool_size)
 			.build()

@@ -2,6 +2,7 @@ use anyhow::Result;
 use bytes::Bytes;
 use futures::TryStreamExt;
 use mockito::mock;
+use rustacles_brokers::common::Rpc;
 use rustacles_brokers::redis::redust::pool::{Manager, Pool};
 use rustacles_brokers::redis::RedisBroker;
 use spectacles_proxy::ratelimiter::local::LocalRatelimiter;
@@ -48,7 +49,7 @@ async fn handles_request() -> Result<()> {
 		.create();
 
 	let events = vec![Bytes::from(config.broker.event.clone())];
-	broker.subscribe(events.iter()).await?;
+	broker.ensure_events(events.iter()).await?;
 	spawn(async move {
 		let mut consumer = broker.consume(events);
 		while let Some(message) = consumer.try_next().await.expect("Next message") {

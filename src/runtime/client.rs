@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use futures::{TryStream, TryStreamExt};
 use http::Method;
 use reqwest::Request;
-use rustacles_brokers::redis::message::Message;
+use rustacles_brokers::{redis::message, common::Message};
 use std::{convert::TryInto, fmt::Debug, str::FromStr, time::SystemTime};
 use tokio::{
 	net::ToSocketAddrs,
@@ -101,7 +101,7 @@ where
 	#[instrument(level = "debug", skip(self))]
 	async fn do_request<A>(
 		&self,
-		message: &Message<A, SerializableHttpRequest>,
+		message: &message::Message<A, SerializableHttpRequest>,
 		data: &SerializableHttpRequest,
 	) -> Result<SerializableHttpResponse>
 	where
@@ -160,7 +160,7 @@ where
 	pub async fn consume_stream<A>(
 		&self,
 		mut stream: impl TryStream<
-				Ok = Message<A, SerializableHttpRequest>,
+				Ok = message::Message<A, SerializableHttpRequest>,
 				Error = rustacles_brokers::error::Error,
 			> + Unpin,
 	) -> Result<()>
@@ -191,7 +191,7 @@ where
 	#[instrument(level = "debug", skip(self))]
 	pub async fn handle_message<A>(
 		&self,
-		message: Message<A, SerializableHttpRequest>,
+		message: message::Message<A, SerializableHttpRequest>,
 	) -> Result<()>
 	where
 		A: ToSocketAddrs + Clone + Send + Sync + Debug,
