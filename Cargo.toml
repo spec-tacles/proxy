@@ -52,4 +52,3 @@ metrics = ["prometheus", "warp"]
 [dev-dependencies]
 mockito = "0.27"
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
-tracing = { version = "0.1", default-features = false }

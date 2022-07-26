@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use futures::{TryStream, TryStreamExt};
 use http::Method;
 use reqwest::Request;
-use rustacles_brokers::{redis::message, common::Message};
+use rustacles_brokers::{common::Message, redis::message};
 use std::{convert::TryInto, fmt::Debug, str::FromStr, time::SystemTime};
 use tokio::{
 	net::ToSocketAddrs,
@@ -120,7 +120,9 @@ where
 		let (req, bucket) = claim?;
 
 		#[cfg(feature = "metrics")]
-		REQUESTS_TOTAL.get_metric_with_label_values(&req_labels)?.inc();
+		REQUESTS_TOTAL
+			.get_metric_with_label_values(&req_labels)?
+			.inc();
 
 		let res = {
 			#[cfg(feature = "metrics")]
@@ -137,7 +139,9 @@ where
 		{
 			let status = res.status();
 			let res_labels = [&data.method, &data.path, status.as_str()];
-			RESPONSES_TOTAL.get_metric_with_label_values(&res_labels)?.inc();
+			RESPONSES_TOTAL
+				.get_metric_with_label_values(&res_labels)?
+				.inc();
 		}
 
 		Ok(SerializableHttpResponse {

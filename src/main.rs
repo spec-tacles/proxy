@@ -11,11 +11,14 @@ use spectacles_proxy::{
 };
 use tokio::spawn;
 use tracing::info;
+use tracing_subscriber::EnvFilter;
 use uriparse::Scheme;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-	tracing_subscriber::fmt().init();
+	tracing_subscriber::fmt()
+		.with_env_filter(EnvFilter::from_default_env())
+		.init();
 
 	let config = Config::from_toml_file("proxy.toml")
 		.unwrap_or_default()
@@ -43,9 +46,7 @@ async fn main() -> Result<()> {
 	broker.ensure_events(events.iter()).await?;
 
 	info!("Beginning normal message consumption");
-	client
-		.consume_stream(broker.consume(events))
-		.await?;
+	client.consume_stream(broker.consume(events)).await?;
 
 	Ok(())
 }
