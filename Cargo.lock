@@ -1331,7 +1331,7 @@ dependencies = [
 [[package]]
 name = "rustacles-brokers"
 version = "0.2.0"
-source = "git+https://github.com/spec-tacles/rustacles?rev=f6cce1f#f6cce1f600eb37da43b74486d73e3e10c88fe400"
+source = "git+https://github.com/spec-tacles/rustacles?rev=6d652b7#6d652b7abdaf54b27592efe3477f575608c80268"
 dependencies = [
  "async-trait",
  "bytes",
