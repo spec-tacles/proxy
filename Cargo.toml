@@ -22,7 +22,7 @@ lazy_static = "1.4"
 prometheus = { version = "0.11", optional = true }
 redust = { version = "0.3", features = ["script", "model", "pool"] }
 rmp-serde = "0.14"
-rustacles-brokers = { git = "https://github.com/spec-tacles/rustacles", rev = "6d652b7", features = ["redis-broker"] }
+rustacles-brokers = { git = "https://github.com/spec-tacles/rustacles", rev = "a8dc59b", features = ["redis-broker"] }
 serde = "1.0"
 serde_repr = "0.1"
 tokio-stream = "0.1"

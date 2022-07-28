@@ -1129,9 +1129,9 @@ dependencies = [
 
 [[package]]
 name = "redox_syscall"
-version = "0.2.15"
+version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "534cfe58d6a18cc17120fbf4635d53d14691c1fe4d951064df9bd326178d7d5a"
+checksum = "fb5a58c1855b4b6819d59012155603f0b22ad30cad752600aadfcb695265519a"
 dependencies = [
  "bitflags",
 ]
@@ -1158,7 +1158,7 @@ dependencies = [
 [[package]]
 name = "redust"
 version = "0.3.0"
-source = "git+https://github.com/appellation/redust#ce96e07661e13ca1c3deefb3088c2641f1ea522c"
+source = "git+https://github.com/appellation/redust#6423d6b1e1ac61bf13f036afc37930937361fc16"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1190,7 +1190,7 @@ dependencies = [
 [[package]]
 name = "redust-resp"
 version = "0.2.1"
-source = "git+https://github.com/appellation/redust#ce96e07661e13ca1c3deefb3088c2641f1ea522c"
+source = "git+https://github.com/appellation/redust#6423d6b1e1ac61bf13f036afc37930937361fc16"
 dependencies = [
  "bytes",
  "itertools",
@@ -1331,7 +1331,7 @@ dependencies = [
 [[package]]
 name = "rustacles-brokers"
 version = "0.2.0"
-source = "git+https://github.com/spec-tacles/rustacles?rev=6d652b7#6d652b7abdaf54b27592efe3477f575608c80268"
+source = "git+https://github.com/spec-tacles/rustacles?rev=a8dc59b#a8dc59b8f9e076f0530f6107e46cd6ba376e4e3b"
 dependencies = [
  "async-trait",
  "bytes",
