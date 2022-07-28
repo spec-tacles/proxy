@@ -1158,7 +1158,7 @@ dependencies = [
 [[package]]
 name = "redust"
 version = "0.3.0"
-source = "git+https://github.com/appellation/redust#6423d6b1e1ac61bf13f036afc37930937361fc16"
+source = "git+https://github.com/appellation/redust#b1f80e04ccfe85e5c3f0180775b02e42f74cb95c"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1190,7 +1190,7 @@ dependencies = [
 [[package]]
 name = "redust-resp"
 version = "0.2.1"
-source = "git+https://github.com/appellation/redust#6423d6b1e1ac61bf13f036afc37930937361fc16"
+source = "git+https://github.com/appellation/redust#b1f80e04ccfe85e5c3f0180775b02e42f74cb95c"
 dependencies = [
  "bytes",
  "itertools",
@@ -1331,7 +1331,7 @@ dependencies = [
 [[package]]
 name = "rustacles-brokers"
 version = "0.2.0"
-source = "git+https://github.com/spec-tacles/rustacles?rev=a8dc59b#a8dc59b8f9e076f0530f6107e46cd6ba376e4e3b"
+source = "git+https://github.com/spec-tacles/rustacles?rev=5982889#5982889661e09e717109d7e932ec257e6bc318bd"
 dependencies = [
  "async-trait",
  "bytes",
