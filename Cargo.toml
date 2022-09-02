@@ -22,7 +22,6 @@ lazy_static = "1.4"
 prometheus = { version = "0.11", optional = true }
 redust = { version = "0.3", features = ["script", "model", "pool"] }
 rmp-serde = "0.14"
-rustacles-brokers = { git = "https://github.com/spec-tacles/rustacles", rev = "5982889", features = ["redis-broker"] }
 serde = "1.0"
 serde_repr = "0.1"
 tokio-stream = "0.1"
@@ -30,6 +29,11 @@ toml = "0.5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uriparse = "0.6"
+
+[dependencies.rustacles-brokers]
+git = "https://github.com/spec-tacles/rustacles"
+rev = "73bfe08"
+features = ["redis-broker"]
 
 [dependencies.tokio]
 version = "1.0"
